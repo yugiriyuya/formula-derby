@@ -16,7 +16,11 @@ export interface ElevationKey {
   h: number;
 }
 
-/** ピットレーン（s / lateral で表現。s の範囲は 0 を跨がない前提） */
+/**
+ * ピットレーン（s / lateral で表現）。
+ * 各 s は entryStart → entryEnd → exitStart → exitEnd の順に進行方向へ並ぶ。
+ * ゴール板（s = 0）を跨いでもよい（例: entryStart 381, exitEnd 20）。
+ */
 export interface PitLaneDef {
   /** 本コースから分岐を開始する s */
   entryStart: number;
@@ -59,9 +63,7 @@ export interface CourseDefinition {
   elevation: ElevationKey[];
   finishS: number;
   pitLane: PitLaneDef;
-  /** 内側のダートコース（帯状） */
-  dirtCourse: { lateral: number; width: number };
-  /** ホームストレッチ外側のスタンド */
+  /** ホームストレッチ外側のスタンド（offset = 中心線からスタンド最前列までの距離） */
   stands: { centerS: number; length: number; offset: number };
   labels: CourseLabel[];
 }

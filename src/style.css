@@ -69,3 +69,91 @@ body {
   margin-right: 4px;
   vertical-align: -1px;
 }
+
+/* ---------- レース HUD ---------- */
+#race-hud {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  width: 250px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+#race-hud .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0;
+}
+#race-hud .k {
+  width: 52px;
+  color: #aaa;
+  font-size: 12px;
+}
+#race-hud small {
+  color: #bbb;
+}
+#race-hud .lap b {
+  font-size: 20px;
+}
+#race-hud .time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+#race-hud .speed b {
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+#race-hud .bar {
+  flex: 1;
+  height: 10px;
+  background: #333;
+  border: 1px solid #666;
+}
+#race-hud .bar div {
+  height: 100%;
+  background: #4cd964;
+}
+#race-hud .bar div.mid {
+  background: #f2c230;
+}
+#race-hud .bar div.low {
+  background: #e8463a;
+}
+#race-hud .warn {
+  color: #ff6b5a;
+}
+#race-hud .pit.on {
+  color: #ffd23a;
+}
+#race-hud .laps {
+  color: #ccc;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+#center-msg {
+  position: fixed;
+  top: 26%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 2px 0 #000, 0 0 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+#c-big {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+#c-sub {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 600;
+}

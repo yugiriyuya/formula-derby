@@ -11,6 +11,7 @@
       <div class="title"><strong>Formula Derby</strong> — <span id="course-name"></span></div>
       <div class="info" id="course-info"></div>
       <div class="buttons">
+        <button data-follow>C レース視点</button>
         <button data-view="overview">1 全景</button>
         <button data-view="hill">2 淀の坂</button>
         <button data-view="pit">3 ピット</button>
@@ -21,13 +22,33 @@
         <button data-preview="pit">6 ピット経由プレビュー</button>
         <button id="toggle-labels">L ラベル</button>
       </div>
-      <ul class="legend">
-        <li><i style="background: #64b440"></i>芝コース</li>
-        <li><i style="background: #c8a470"></i>ダート</li>
-        <li><i style="background: #969696"></i>ピットレーン / エプロン</li>
-      </ul>
-      <div class="help">ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム / Esc: プレビュー終了</div>
+      <div class="help">
+        W/↑ 加速 ・ S/↓ 減速 ・ A D/← → 進路 ・ Space ムチ<br />
+        P ピット要求 ・ T 次の蹄鉄 ・ C 後方/騎手視点 ・ R リスタート
+      </div>
     </div>
+
+    <div id="race-hud">
+      <div class="row lap">
+        <span class="k">LAP</span><b id="h-lap">1/5</b><span id="h-time" class="time">0:00.00</span>
+      </div>
+      <div class="row speed"><b id="h-speed">0</b><span>km/h</span></div>
+      <div class="row">
+        <span class="k">スタミナ</span>
+        <div class="bar"><div id="h-stamina"></div></div>
+      </div>
+      <div class="row"><span class="k">ムチ</span><b id="h-whip">0 / 5</b><small>今周</small></div>
+      <div class="row">
+        <span class="k">蹄鉄</span><b id="h-shoe" class="shoe">SOFT</b><small id="h-wear">摩耗 0%</small>
+      </div>
+      <div class="row">
+        <span class="k">ピット</span><b id="h-pit" class="pit">OFF</b><small>次 <b id="h-next">HARD</b> ・ 回数 <b id="h-pitcount">0</b></small>
+      </div>
+      <div class="row laps" id="h-laps">LAST --:--.-- ・ BEST --:--.--</div>
+    </div>
+
+    <div id="center-msg"><div id="c-big"></div><div id="c-sub"></div></div>
+
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

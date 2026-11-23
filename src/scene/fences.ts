@@ -16,7 +16,6 @@ export function buildFences(track: CourseTrack, topAt: (x: number, z: number) =>
   const def = track.def;
   const half = def.trackWidth / 2;
   const pit = def.pitLane;
-  const dirt = def.dirtCourse;
 
   const rails: RailSpec[] = [
     { lateral: -(half + 0.5) }, // 外ラチ
@@ -28,8 +27,6 @@ export function buildFences(track: CourseTrack, topAt: (x: number, z: number) =>
         return p !== null && Math.abs(half + 0.5 - p) < pit.width / 2 + 0.5;
       },
     },
-    { lateral: dirt.lateral - dirt.width / 2 - 0.5 },
-    { lateral: dirt.lateral + dirt.width / 2 + 0.5 },
   ];
 
   const posts: THREE.Matrix4[] = [];

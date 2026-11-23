@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { CourseDefinition } from './types';
+import type { CourseDefinition, Segment } from './types';
 
 const STEP = 0.5;
 
@@ -25,6 +25,8 @@ export class CourseTrack {
   private readonly zs: number[] = [];
   private readonly dxs: number[] = [];
   private readonly dzs: number[] = [];
+  /** 曲率（1/半径）。右カーブが + */
+  private readonly ks: number[] = [];
 
   constructor(def: CourseDefinition) {
     this.def = def;
@@ -32,14 +34,17 @@ export class CourseTrack {
     let z = def.start.z;
     let phi = THREE.MathUtils.degToRad(def.start.headingDeg);
     let s = 0;
-    const push = () => {
+    const curvature = (seg: Segment) =>
+      seg.type === 'arc' ? (seg.turn === 'right' ? 1 : -1) / seg.radius : 0;
+    const push = (k: number) => {
       this.ss.push(s);
       this.xs.push(x);
       this.zs.push(z);
       this.dxs.push(Math.cos(phi));
       this.dzs.push(Math.sin(phi));
+      this.ks.push(k);
     };
-    push();
+    push(curvature(def.segments[0]));
 
     for (const seg of def.segments) {
       const len =
@@ -53,7 +58,7 @@ export class CourseTrack {
         z += Math.sin(phi + dphi / 2) * ds;
         phi += dphi;
         s += ds;
-        push();
+        push(curvature(seg));
       }
     }
 
@@ -61,7 +66,44 @@ export class CourseTrack {
     const gap = Math.hypot(x - def.start.x, z - def.start.z);
     if (gap > 0.5) console.warn(`[CourseTrack] コースが閉じていません（誤差 ${gap.toFixed(2)}）`);
     // 最後の点は始点と同じなので捨てる
-    for (const arr of [this.ss, this.xs, this.zs, this.dxs, this.dzs]) arr.pop();
+    for (const arr of [this.ss, this.xs, this.zs, this.dxs, this.dzs, this.ks]) arr.pop();
+  }
+
+  /** 中心線の範囲（ワールドの大きさを決めるのに使う） */
+  extent(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+    return {
+      minX: Math.min(...this.xs),
+      maxX: Math.max(...this.xs),
+      minZ: Math.min(...this.zs),
+      maxZ: Math.max(...this.zs),
+    };
+  }
+
+  /** s 地点の曲率（1/半径, 右カーブが +） */
+  curvatureAt(s: number): number {
+    return this.ks[this.indexAt(s).i];
+  }
+
+  /** s 地点の勾配（登りが +） */
+  slopeAt(s: number): number {
+    return this.elevationAt(s + 0.5) - this.elevationAt(s - 0.5);
+  }
+
+  /** ピット入口（entryStart）から s までの進行方向の距離 */
+  pitOffset(s: number): number {
+    return this.wrap(s - this.def.pitLane.entryStart);
+  }
+
+  /** ピット入口から出口（exitEnd）までの距離 */
+  get pitLength(): number {
+    return this.pitOffset(this.def.pitLane.exitEnd);
+  }
+
+  /** count 棟並ぶピットボックスのうち index 番目の中心の s */
+  garageS(index: number, count: number): number {
+    const p = this.def.pitLane;
+    const span = this.wrap(p.garageEnd - p.garageStart) / count;
+    return this.wrap(p.garageStart + (index + 0.5) * span);
   }
 
   /** s を [0, length) に正規化 */
@@ -121,9 +163,11 @@ export class CourseTrack {
   /** ワールド座標 (x, z) を最寄りの s / lateral に変換 */
   project(x: number, z: number): { s: number; lateral: number } {
     const n = this.ss.length;
+    // まず 8 ブロックおきに粗く探し、近傍を細かく探す（ワールド全セルで呼ぶので軽くしておく）
+    const COARSE = 16;
     let best = 0;
     let bestD = Infinity;
-    for (let i = 0; i < n; i += 4) {
+    for (let i = 0; i < n; i += COARSE) {
       const d = (x - this.xs[i]) ** 2 + (z - this.zs[i]) ** 2;
       if (d < bestD) {
         bestD = d;
@@ -131,7 +175,7 @@ export class CourseTrack {
       }
     }
     const coarse = best;
-    for (let k = -8; k <= 8; k++) {
+    for (let k = -COARSE; k <= COARSE; k++) {
       const i = (coarse + k + n) % n;
       const d = (x - this.xs[i]) ** 2 + (z - this.zs[i]) ** 2;
       if (d < bestD) {
@@ -146,17 +190,21 @@ export class CourseTrack {
     return { s: this.wrap(this.ss[best] + ox * dx + oz * dz), lateral: ox * -dz + oz * dx };
   }
 
-  /** s 地点でのピットレーン中心の lateral。ピット区間外なら null */
+  /** s 地点でのピットレーン中心の lateral。ピット区間外なら null（ゴール板を跨ぐ区間にも対応） */
   pitLateralAt(s: number): number | null {
     const p = this.def.pitLane;
-    s = this.wrap(s);
-    if (s < p.entryStart || s > p.exitEnd) return null;
-    if (s < p.entryEnd) {
-      const t = smoothstep((s - p.entryStart) / (p.entryEnd - p.entryStart));
+    // すべて「ピット入口からの距離」に直して判定する
+    const d = this.pitOffset(s);
+    const entryLen = this.pitOffset(p.entryEnd);
+    const exitFrom = this.pitOffset(p.exitStart);
+    const total = this.pitLength;
+    if (d > total) return null;
+    if (d < entryLen) {
+      const t = smoothstep(d / entryLen);
       return p.mergeLateral + (p.lateral - p.mergeLateral) * t;
     }
-    if (s > p.exitStart) {
-      const t = smoothstep((s - p.exitStart) / (p.exitEnd - p.exitStart));
+    if (d > exitFrom) {
+      const t = smoothstep((d - exitFrom) / (total - exitFrom));
       return p.lateral + (p.mergeLateral - p.lateral) * t;
     }
     return p.lateral;

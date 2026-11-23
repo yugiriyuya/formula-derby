@@ -23,6 +23,9 @@ function pixelTexture(
   tex.minFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.generateMipmaps = false;
+  // 地面は複数ブロックを 1 枚の面にまとめるので、UV 1 ごとに繰り返す
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
 
@@ -66,7 +69,6 @@ export function createBlockTextures() {
     // 芝コースは刈り込みの縞模様を出すため 2 色
     turfA: noise([104, 190, 64], 18, 13),
     turfB: noise([82, 164, 50], 18, 17),
-    sand: noise([200, 164, 112], 30, 19),
     stone: noise([150, 150, 150], 30, 23),
     white: noise([238, 238, 238], 10, 29),
   };
