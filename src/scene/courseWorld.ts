@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CourseTrack } from '../course/CourseTrack';
 import { createBlockTextures } from './textures';
+import { TurfSurface, type TurfCell } from './turfSurface';
 
 export enum Block {
   Grass,
@@ -21,13 +22,16 @@ export interface CourseWorld {
   group: THREE.Group;
   /** (x, z) の地面の上面の高さ */
   topAt(x: number, z: number): number;
+  /** 芝コースの上面（荒れ具合で色が変わる） */
+  turf: TurfSurface;
 }
 
 /** 外周の断面を見せる深さ */
 const BASE_DEPTH = -3;
-/** 芝の刈り込み模様：進行方向の縞の間隔と、幅方向の帯の幅（ブロック） */
+/** 芝の刈り込み模様：進行方向の縞の間隔と、幅方向の帯の幅（ブロック）、暗い縞の明るさ */
 const STRIPE_LENGTH = 3;
 const BAND_WIDTH = 9;
+const TURF_B_SHADE = 0.84;
 
 /** 見えている面だけを 1 つのジオメトリに集める */
 class FaceBuilder {
@@ -119,8 +123,6 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
   const mat = (map: THREE.Texture) => new THREE.MeshLambertMaterial({ map });
   const m = {
     grassTop: mat(tex.grassTop),
-    turfA: mat(tex.turfA),
-    turfB: mat(tex.turfB),
     white: mat(tex.white),
     stone: mat(tex.stone),
     grassSide: mat(tex.grassSide),
@@ -128,8 +130,8 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
   };
   const topMat: Record<Block, THREE.Material> = {
     [Block.Grass]: m.grassTop,
-    [Block.TurfA]: m.turfA,
-    [Block.TurfB]: m.turfB,
+    [Block.TurfA]: m.grassTop, // 芝コースは TurfSurface で描くので使わない
+    [Block.TurfB]: m.grassTop,
     [Block.Finish]: m.white,
     [Block.Stone]: m.stone,
   };
@@ -143,6 +145,8 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
   };
 
   // --- 上面（x 方向に同じブロックが続く所は 1 枚にまとめる） ---
+  // 芝コースのマスだけは荒れ具合で色が変わるので、まとめずに TurfSurface に渡す
+  const turfCells: TurfCell[] = [];
   for (let iz = 0; iz < depth; iz++) {
     const z0 = bounds.minZ + iz;
     const z1 = z0 + 1;
@@ -151,6 +155,11 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
       const i = iz * width + ix;
       const t = types[i];
       const h = heights[i];
+      if (t === Block.TurfA || t === Block.TurfB) {
+        turfCells.push({ ix, iz, height: h, shade: t === Block.TurfA ? 1 : TURF_B_SHADE });
+        ix++;
+        continue;
+      }
       let end = ix + 1;
       while (end < width && types[iz * width + end] === t && heights[iz * width + end] === h) end++;
       const x0 = bounds.minX + ix;
@@ -207,9 +216,12 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
     const mesh = b.build(material);
     if (mesh) group.add(mesh);
   }
+  const turf = new TurfSurface(turfCells, bounds, tex.turfA);
+  group.add(turf.mesh);
 
   return {
     group,
+    turf,
     topAt(x, z) {
       return heightAtCell(Math.floor(x - bounds.minX), Math.floor(z - bounds.minZ));
     },

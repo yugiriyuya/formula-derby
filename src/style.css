@@ -60,7 +60,7 @@ body {
   position: fixed;
   top: 12px;
   left: 12px;
-  width: 316px;
+  width: 330px;
   padding: 8px 8px 10px;
   background: rgba(10, 14, 20, 0.72);
   color: #fff;
@@ -116,7 +116,7 @@ body {
   height: 4px;
 }
 #standings .name {
-  max-width: 130px;
+  max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -411,4 +411,223 @@ body:not([data-mode='title']) #title-screen {
 }
 #title-screen .menu small {
   color: #e6e6e6;
+}
+
+/* ---------- 馬番バッジ（枠色） ---------- */
+.post-badge {
+  display: inline-block;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  box-sizing: border-box;
+}
+#standings .post {
+  width: 22px;
+  padding: 0 2px;
+}
+
+/* ---------- ペース ---------- */
+#race-hud .pace-seg {
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #888;
+  background: #2a2a2a;
+  border: 1px solid #555;
+}
+#race-hud .pace-seg.on[data-pace='relaxed'] {
+  color: #fff;
+  background: #2b6fa8;
+  border-color: #6fb0e8;
+}
+#race-hud .pace-seg.on[data-pace='normal'] {
+  color: #fff;
+  background: #2f7d3a;
+  border-color: #6fd17d;
+}
+#race-hud .pace-seg.on[data-pace='high'] {
+  color: #fff;
+  background: #b0402a;
+  border-color: #f08060;
+}
+
+/* ---------- F1 式 5 レッドライト ---------- */
+#start-lights {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #111;
+  border: 3px solid #333;
+  transform: translateX(-50%);
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+#start-lights.hidden {
+  opacity: 0;
+}
+#start-lights .lamp-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: #050505;
+  border: 2px solid #2a2a2a;
+}
+#start-lights i {
+  display: block;
+  width: 30px;
+  height: 30px;
+  background: #2a0505;
+  border-radius: 50%;
+  box-shadow: inset 0 0 6px #000;
+}
+#start-lights .lamp-unit.on i {
+  background: radial-gradient(circle at 40% 35%, #ff8a7a, #ff1a1a 55%, #a00000);
+  box-shadow: 0 0 14px 3px rgba(255, 30, 30, 0.75);
+}
+body[data-mode='title'] #start-lights {
+  display: none;
+}
+
+/* ---------- ペナルティ ---------- */
+#standings .pen,
+#standings th.pen {
+  width: 38px;
+  text-align: right;
+  color: #ff6b5a;
+  font-weight: 700;
+}
+#race-hud .penalty {
+  margin-left: auto;
+  color: #ff6b5a;
+}
+#race-hud .warn-soon {
+  color: #ffb03a;
+}
+#penalty-toast {
+  position: fixed;
+  top: 112px;
+  left: 50%;
+  padding: 6px 14px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: rgba(190, 30, 20, 0.9);
+  border: 2px solid #ff8a7a;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+#penalty-toast.show {
+  opacity: 1;
+}
+#c-big.penalty {
+  color: #ff4a3a;
+}
+
+/* ---------- スリップストリーム ---------- */
+#race-hud .slip-badge {
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #556;
+  background: #222;
+  border: 1px solid #444;
+}
+#race-hud .slip-badge.on {
+  color: #0b2030;
+  background: #7fe0ff;
+  border-color: #c8f4ff;
+  box-shadow: 0 0 10px rgba(127, 224, 255, 0.8);
+}
+#slip-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 4deg, rgba(255, 255, 255, 0.22) 4deg 4.5deg);
+  -webkit-mask-image: radial-gradient(ellipse at center, transparent 42%, #000 88%);
+  mask-image: radial-gradient(ellipse at center, transparent 42%, #000 88%);
+  animation: slip-flow 0.18s steps(3) infinite;
+}
+body.slipstream #slip-overlay {
+  opacity: 1;
+}
+@keyframes slip-flow {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  to {
+    transform: rotate(1.5deg) scale(1.03);
+  }
+}
+body[data-mode='title'] #penalty-toast,
+body[data-mode='title'] #slip-overlay {
+  display: none;
+}
+
+/* ---------- 落馬・セーフティホース ---------- */
+#race-hud .rail-warn {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  background: #c0281c;
+  border: 1px solid #ff8a7a;
+  visibility: hidden;
+  animation: rail-blink 0.4s steps(2) infinite;
+}
+#race-hud .rail-warn.on {
+  visibility: visible;
+}
+@keyframes rail-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+#flag-banner {
+  position: fixed;
+  top: 150px;
+  left: 50%;
+  padding: 8px 22px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  display: none;
+}
+#flag-banner.sc {
+  display: block;
+  color: #1a1400;
+  background: repeating-linear-gradient(45deg, #ffd23a 0 18px, #f2c000 18px 36px);
+  border: 3px solid #1a1400;
+}
+#flag-banner.green {
+  display: block;
+  color: #fff;
+  background: #1f9a3a;
+  border: 3px solid #b8ffc8;
+}
+body[data-mode='title'] #flag-banner {
+  display: none !important;
+}
+#standings tr.retired td {
+  color: #777;
+}
+#standings tr.retired .pos {
+  color: #ff6b5a;
 }

@@ -1,5 +1,3 @@
-import type { HorseControls } from './RaceHorse';
-
 /** ページのスクロールやボタンの誤クリックを防ぐため、既定動作を止めるキー */
 const GAME_KEYS = new Set([
   'KeyW', 'KeyA', 'KeyS', 'KeyD',
@@ -38,15 +36,17 @@ export class KeyboardInput {
     return p;
   }
 
-  /** Monoposto 風の操作割り当て */
-  horseControls(pressed: Set<string>): HorseControls {
+  /** 進路取り（押している間）：-1 = 左（外側）, +1 = 右（内側） */
+  steer(): number {
     const left = this.isDown('KeyA', 'ArrowLeft');
     const right = this.isDown('KeyD', 'ArrowRight');
-    return {
-      accelerate: this.isDown('KeyW', 'ArrowUp'),
-      brake: this.isDown('KeyS', 'ArrowDown'),
-      steer: (right ? 1 : 0) - (left ? 1 : 0),
-      whip: pressed.has('Space'),
-    };
+    return (right ? 1 : 0) - (left ? 1 : 0);
+  }
+
+  /** ペース変更（1 回押し）：W/↑ で +1、S/↓ で -1、なければ 0 */
+  paceShift(pressed: Set<string>): 1 | -1 | 0 {
+    if (pressed.has('KeyW') || pressed.has('ArrowUp')) return 1;
+    if (pressed.has('KeyS') || pressed.has('ArrowDown')) return -1;
+    return 0;
   }
 }

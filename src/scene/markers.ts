@@ -40,7 +40,6 @@ function numberTexture(text: string): THREE.CanvasTexture {
 export function buildDistanceMarkers(track: CourseTrack, topAt: TopAt): THREE.Group {
   const def = track.def;
   const mpb = def.metersPerBlock;
-  const half = def.trackWidth / 2;
   const pit = def.pitLane;
   const group = new THREE.Group();
 
@@ -59,10 +58,10 @@ export function buildDistanceMarkers(track: CourseTrack, topAt: TopAt): THREE.Gr
     const isFurlong = remain % FURLONG === 0;
 
     // ピットレーンと重なる所は外ラチ側へ
-    const inner = half + 1.4;
+    const inner = track.railLateral + 0.9;
     const p = track.pitLateralAt(s);
     const blocked = p !== null && Math.abs(inner - p) < pit.width / 2 + 1.5;
-    const lateral = blocked ? -(half + 1.4) : inner;
+    const lateral = blocked ? -inner : inner;
 
     const frame = track.frameAt(s, lateral);
     const g = new THREE.Group();

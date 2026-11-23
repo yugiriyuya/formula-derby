@@ -69,6 +69,17 @@ export class CourseTrack {
     for (const arr of [this.ss, this.xs, this.zs, this.dxs, this.dzs, this.ks]) arr.pop();
   }
 
+  /** ラチ（柵）の中心の横位置（内ラチは +、外ラチは -） */
+  get railLateral(): number {
+    return this.def.trackWidth / 2 + this.def.railOffset;
+  }
+
+  /** s 地点で内ラチが開いているか（ピットレーンが本コースを横切る出入口） */
+  innerRailOpenAt(s: number): boolean {
+    const p = this.pitLateralAt(s);
+    return p !== null && Math.abs(this.railLateral - p) < this.def.pitLane.width / 2 + 0.5;
+  }
+
   /** 中心線の範囲（ワールドの大きさを決めるのに使う） */
   extent(): { minX: number; maxX: number; minZ: number; maxZ: number } {
     return {

@@ -13,20 +13,12 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 /** 白いラチ（柵）。支柱とレールを InstancedMesh でまとめて描画する。 */
 export function buildFences(track: CourseTrack, topAt: (x: number, z: number) => number): THREE.Group {
-  const def = track.def;
-  const half = def.trackWidth / 2;
-  const pit = def.pitLane;
-
+  // ラチの位置は落馬判定（Race）と同じ track.railLateral を使う
+  const rail = track.railLateral;
   const rails: RailSpec[] = [
-    { lateral: -(half + 0.5) }, // 外ラチ
-    {
-      // 内ラチ。ピットレーンが横切る区間は開ける
-      lateral: half + 0.5,
-      skip: (s) => {
-        const p = track.pitLateralAt(s);
-        return p !== null && Math.abs(half + 0.5 - p) < pit.width / 2 + 0.5;
-      },
-    },
+    { lateral: -rail }, // 外ラチ
+    // 内ラチ。ピットレーンが横切る区間は開ける
+    { lateral: rail, skip: (s) => track.innerRailOpenAt(s) },
   ];
 
   const posts: THREE.Matrix4[] = [];

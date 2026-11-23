@@ -1,5 +1,6 @@
 import { HORSESHOES } from '../data/horseshoes';
 import { constructorOf } from '../data/roster';
+import { bracketColor } from '../data/brackets';
 import type { Race } from '../race/Race';
 import { RACE_CONFIG } from '../race/raceConfig';
 
@@ -35,14 +36,33 @@ export class RaceHud {
     laps: $('h-laps'),
     big: $('c-big'),
     sub: $('c-sub'),
+    post: $('h-post'),
+    lights: $('start-lights'),
+    penalty: $('h-penalty'),
+    slip: $('h-slip'),
+    toast: $('penalty-toast'),
+    rail: $('h-rail'),
+    flag: $('flag-banner'),
   };
+  private readonly lampUnits = [...document.querySelectorAll<HTMLElement>('#start-lights .lamp-unit')];
+  private readonly paceSegs = [...document.querySelectorAll<HTMLElement>('#race-hud .pace-seg')];
 
   update(race: Race) {
     // シンプルレースでは自分の馬、観戦モードではカメラが追っている馬
     const h = race.focus;
     const e = this.el;
 
+    // --- F1 式スタートシグナル：1 つずつ点灯 → 全消灯でスタート。スタート後しばらくして隠す ---
+    const lit = race.lightsOn;
+    this.lampUnits.forEach((u, i) => u.classList.toggle('on', i < lit));
+    e.lights.classList.toggle('hidden', race.phase !== 'countdown' && race.time > 1.2);
+
     const team = constructorOf(h.entry);
+    const badge = bracketColor(h.postNumber, race.horses.length);
+    e.post.textContent = String(h.postNumber);
+    e.post.style.background = badge.bg;
+    e.post.style.color = badge.fg;
+    this.paceSegs.forEach((s) => s.classList.toggle('on', s.dataset.pace === h.paceLevel));
     e.name.textContent = h.entry.horse.name;
     e.team.textContent = `${team.name}（${team.nameEn}）・${h.entry.jockey.name}`;
     e.swatch.style.background = `#${team.color.toString(16).padStart(6, '0')}`;
@@ -62,13 +82,37 @@ export class RaceHud {
 
     e.whip.textContent = `${h.whipsThisLap} / ${RACE_CONFIG.whipPenaltyCount}`;
     e.whip.classList.toggle('warn', h.whipsThisLap >= RACE_CONFIG.whipPenaltyCount);
+    // あと 1 回でペナルティ（4 回目）はオレンジで注意
+    e.whip.classList.toggle('warn-soon', h.whipsThisLap === RACE_CONFIG.whipPenaltyCount - 1);
+    e.penalty.textContent = h.penaltySeconds > 0 ? `ペナルティ +${h.penaltySeconds}s` : '';
+    e.slip.classList.toggle('on', h.slipstream > 0.5);
+    // ラチに近づきすぎ（触れたら落馬）
+    const nearRail = !h.retired && h.pitPhase === 'none' && race.phase === 'running' && h.railDistance < RACE_CONFIG.railWarningDistance;
+    e.rail.classList.toggle('on', nearRail);
+
+    // セーフティホース / GREEN FLAG のバナー
+    const sc = race.safety;
+    const green = race.clock - sc.greenFlagAt < RACE_CONFIG.greenFlagSeconds;
+    e.flag.className = sc.restricting ? 'sc' : green ? 'green' : '';
+    if (sc.restricting) {
+      const state = sc.state === 'standby' ? '出動' : sc.state === 'leading' ? '先導中' : 'まもなくピットへ';
+      e.flag.textContent = `SAFETY HORSE（追い越し禁止・50km/h制限）— ${state}`;
+    } else if (green) {
+      e.flag.textContent = 'GREEN FLAG — レース再開';
+    }
+
+    // ペナルティ・落馬の警告（どの馬でも、直近 3 秒以内のもの）
+    const last = race.incidents[race.incidents.length - 1];
+    const showToast = last !== undefined && race.clock - last.at < 3;
+    e.toast.classList.toggle('show', showToast);
+    if (showToast) e.toast.textContent = last.text;
 
     const shoe = HORSESHOES[h.shoe];
     e.shoe.textContent = h.shoe;
     e.shoe.style.color = shoe.color;
     e.wear.textContent = `摩耗 ${Math.round(h.shoeWear * 100)}%`;
 
-    e.pit.textContent = h.inPit ? 'IN' : h.pitRequested ? 'ON' : 'OFF';
+    e.pit.textContent = h.stopGoPending ? 'S&G' : h.inPit ? 'IN' : h.pitRequested ? 'ON' : 'OFF';
     e.pit.classList.toggle('on', h.pitRequested || h.inPit);
     e.next.textContent = h.nextShoe;
     e.next.style.color = HORSESHOES[h.nextShoe].color;
@@ -80,24 +124,32 @@ export class RaceHud {
     let big = '';
     let sub = '';
     if (race.phase === 'countdown') {
-      big = String(Math.ceil(race.countdown));
-      sub = race.spectating ? '観戦モード — ← → で注目する馬を切替' : 'W / ↑ で加速';
+      // 赤ランプが全部消えた瞬間にゲートが開く
+      sub = race.spectating ? '観戦モード — ← → で注目する馬を切替' : 'ブラックアウトでスタート ・ W/S でペース';
+    } else if (h.retired) {
+      big = '落馬 — RETIRED';
+      sub = race.spectating ? `${h.postNumber}番 ${h.entry.horse.name} はリタイア` : 'R でリスタート';
     } else if (race.spectating && race.phase === 'finished') {
       // 観戦モード：全頭ゴールしたら結果
       const winner = race.standings[0];
       big = 'レース終了';
-      sub = `優勝 ${winner.entry.horse.name}（${formatOpt(winner.finishTime)}）・ R で再レース ・ タイトルへ戻るボタン`;
+      sub = `優勝 ${winner.entry.horse.name}（${formatOpt(race.correctedTime(winner))}）・ R で再レース ・ タイトルへ戻るボタン`;
     } else if (h.finishTime !== null) {
       // ゴールしたら結果を出し続ける（他馬はまだ走っていることがある）
       big = race.spectating ? `${h.entry.horse.name} ${h.finishPosition}着` : `FINISH! ${h.finishPosition}着`;
-      sub = `タイム ${formatTime(h.finishTime)} ・ ベスト ${formatOpt(race.bestLapTime)} ・ R でリスタート`;
+      const pen = h.penaltySeconds > 0 ? `（ペナルティ +${h.penaltySeconds}s 込み）` : '';
+      sub = `タイム ${formatTime(race.correctedTime(h)!)}${pen} ・ ベスト ${formatOpt(race.bestLapTime)} ・ R でリスタート`;
     } else {
       big = race.activeMessage ?? '';
-      if (h.pitPhase === 'stopped') sub = `蹄鉄交換中 ${h.shoe} → ${h.nextShoe}  ${Math.max(0, h.pitTimer).toFixed(1)}s`;
+      if (h.pitPhase === 'stopped' && h.isServingStopGo) sub = `STOP & GO 停止中  ${Math.max(0, h.pitTimer).toFixed(1)}s`;
+      else if (h.pitPhase === 'stopped') sub = `蹄鉄交換中 ${h.shoe} → ${h.nextShoe}  ${Math.max(0, h.pitTimer).toFixed(1)}s`;
+      else if (h.stopGoPending && h.pitPhase === 'none') sub = `STOP & GO — 次のピットインでボックスに ${RACE_CONFIG.stopGoSeconds} 秒停止`;
       else if (h.pitPhase === 'lane') sub = `ピットレーン 速度制限 ${Math.round(RACE_CONFIG.pitSpeedLimit * 3.6)}km/h`;
       else if (h.pitPhase === 'approach') sub = 'ピットイン準備 — 内側へ寄せます';
-      else if (h.whipsThisLap >= RACE_CONFIG.whipPenaltyCount) sub = `ムチ ${h.whipsThisLap} 回 — この周はペナルティ対象`;
+      else if (h.whipsThisLap === RACE_CONFIG.whipPenaltyCount - 1) sub = `ムチ ${h.whipsThisLap} 回 — この周は次からペナルティ +${RACE_CONFIG.whipPenaltySeconds}s`;
     }
+    // ペナルティの警告は赤く
+    e.big.classList.toggle('penalty', race.activeMessageKind === 'penalty' && big === race.activeMessage);
     e.big.textContent = big;
     e.sub.textContent = sub;
   }

@@ -60,6 +60,8 @@ export interface CourseDefinition {
   trackWidth: number;
   /** コースが持ち上がっている区間の法面の幅（ブロック） */
   embankment: number;
+  /** 芝コースの端からラチ（柵）の中心までの距離（ブロック）。小さいほど馬がラチぎりぎりを走る */
+  railOffset: number;
   elevation: ElevationKey[];
   finishS: number;
   pitLane: PitLaneDef;

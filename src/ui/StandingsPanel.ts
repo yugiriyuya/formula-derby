@@ -1,5 +1,6 @@
 import { HORSESHOES } from '../data/horseshoes';
 import { capColorOf, constructorOf } from '../data/roster';
+import { bracketColor } from '../data/brackets';
 import type { Race } from '../race/Race';
 import type { RaceHorse } from '../race/RaceHorse';
 
@@ -8,12 +9,16 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 interface Row {
   tr: HTMLTableRowElement;
   pos: HTMLTableCellElement;
+  /** 馬番バッジ（枠色） */
+  post: HTMLSpanElement;
   swatch: HTMLSpanElement;
   cap: HTMLSpanElement;
   name: HTMLTableCellElement;
   gap: HTMLTableCellElement;
   shoe: HTMLTableCellElement;
   pits: HTMLTableCellElement;
+  /** タイムペナルティ（秒） */
+  pen: HTMLTableCellElement;
 }
 
 /** 表示を更新する間隔（秒）。毎フレーム書き換えると読みにくく重いので間引く */
@@ -45,6 +50,10 @@ export class StandingsPanel {
         return el;
       };
       const pos = td('pos');
+      const postCell = td('post');
+      const post = document.createElement('span');
+      post.className = 'post-badge';
+      postCell.appendChild(post);
       const colorCell = td('color');
       const swatch = document.createElement('span');
       swatch.className = 'swatch';
@@ -56,8 +65,9 @@ export class StandingsPanel {
       const gap = td('gap');
       const shoe = td('shoe');
       const pits = td('pits');
+      const pen = td('pen');
       tbody.appendChild(tr);
-      this.rows.push({ tr, pos, swatch, cap, name, gap, shoe, pits });
+      this.rows.push({ tr, pos, post, swatch, cap, name, gap, shoe, pits, pen });
     }
   }
 
@@ -81,7 +91,12 @@ export class StandingsPanel {
       r.tr.classList.toggle('focus', h === race.focus);
       r.tr.classList.toggle('pitting', h.inPit);
       r.tr.classList.toggle('finished', h.finishPosition !== null);
-      r.pos.textContent = h.finishPosition !== null ? `${h.finishPosition}着` : String(i + 1);
+      r.tr.classList.toggle('retired', h.retired);
+      r.pos.textContent = h.retired ? 'OUT' : h.finishPosition !== null ? `${h.finishPosition}着` : String(i + 1);
+      const badge = bracketColor(h.postNumber, race.horses.length);
+      r.post.textContent = String(h.postNumber);
+      r.post.style.background = badge.bg;
+      r.post.style.color = badge.fg;
       r.swatch.style.background = hex(team.color);
       r.cap.style.background = hex(capColorOf(h.entry));
       r.swatch.title = team.name;
@@ -92,15 +107,18 @@ export class StandingsPanel {
       r.shoe.style.color = shoe.color;
       r.shoe.title = `${shoe.label} 摩耗 ${Math.round(h.shoeWear * 100)}%`;
       r.pits.textContent = h.inPit ? 'PIT' : String(h.pitCount);
+      // タイムペナルティの秒数。STOP & GO 未消化なら SG
+      r.pen.textContent = (h.penaltySeconds > 0 ? `+${h.penaltySeconds}` : '') + (h.stopGoPending ? ' SG' : '');
     });
   }
 
   private gapText(race: Race, h: RaceHorse, leader: RaceHorse): string {
-    if (h === leader) {
-      if (h.finishTime !== null) return formatRaceTime(h.finishTime);
-      return race.phase === 'countdown' ? `${race.postOf(h)}枠` : 'トップ';
-    }
-    if (race.phase === 'countdown') return `${race.postOf(h)}枠`;
+    if (race.phase === 'countdown') return '';
+    if (h.retired) return 'DNF';
+    // スタート直後の数秒は発馬の結果を出す
+    if (race.time < 4 && h.startResult === 'rocket') return '好発';
+    if (race.time < 4 && h.startResult === 'late') return '出遅れ';
+    if (h === leader) return h.finishTime !== null ? formatRaceTime(race.correctedTime(h)!) : 'トップ';
     const gap = race.gapTo(h, leader);
     if (!gap) return '';
     if (gap.laps > 0) return `+${gap.laps} LAP`;

@@ -91,9 +91,24 @@ export class Minimap {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.drawImage(this.background, 0, 0);
 
-    // 後ろの順位から描いて、上位と注目している馬（自分の馬）を上に重ねる
-    const order = [...race.standings].reverse().filter((h) => h !== race.focus);
-    order.push(race.focus);
+    // 後ろの順位から描いて、上位と注目している馬（自分の馬）を上に重ねる。落馬した馬は描かない
+    const order = [...race.standings].reverse().filter((h) => h !== race.focus && !h.retired);
+    if (!race.focus.retired) order.push(race.focus);
+
+    // セーフティホース：白い大きめの点に黄色の縁
+    const sc = race.safety;
+    if (sc.visible) {
+      const p = this.track.frameAt(sc.s, sc.lateral).position;
+      const [x, y] = this.toMap(p.x, p.z);
+      ctx.beginPath();
+      ctx.arc(x, y, 5.5 * this.dpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#f4f4f4';
+      ctx.fill();
+      ctx.lineWidth = 2.5 * this.dpr;
+      ctx.strokeStyle = '#ffc400';
+      ctx.stroke();
+    }
+
     for (const h of order) {
       const p = this.track.frameAt(h.s, h.lateral).position;
       const [x, y] = this.toMap(p.x, p.z);

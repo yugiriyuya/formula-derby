@@ -21,7 +21,7 @@ const M = (meters: number) => meters / MPB;
 const RADIUS = 150;
 const STRAIGHT = 476;
 const GOAL_TO_1C = 76;
-const TRACK_WIDTH = 45;
+const TRACK_WIDTH = 32;
 const HALF = TRACK_WIDTH / 2;
 
 // 主要地点の s（m）
@@ -43,7 +43,8 @@ export const KYOTO_OUTER: CourseDefinition = {
     { type: 'arc', radius: M(RADIUS), angleDeg: 180, turn: 'right', name: '3〜4コーナー' },
     { type: 'straight', length: M(STRAIGHT - GOAL_TO_1C), name: 'ホームストレッチ' },
   ],
-  trackWidth: M(TRACK_WIDTH), // 多頭数で並走できるよう実コース（約24〜38m）より広め
+  trackWidth: M(TRACK_WIDTH), // 実コース（約24〜38m）並み。ラチが近く、馬群がラチぎりぎりを攻める
+  railOffset: M(0.3),
   embankment: M(20),
   elevation: [
     { s: 0, h: 0 },

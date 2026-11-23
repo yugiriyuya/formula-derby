@@ -94,8 +94,7 @@ function buildGarages(track: CourseTrack, topAt: TopAt): THREE.Group {
 
 /** ゴール板（外ラチ側のポール） */
 function buildFinishPost(track: CourseTrack, topAt: TopAt): THREE.Group {
-  const half = track.def.trackWidth / 2;
-  const frame = track.frameAt(track.def.finishS, -(half + 1.5));
+  const frame = track.frameAt(track.def.finishS, -(track.railLateral + 1));
   const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z));
   const pole = box(0.3, 6, 0.3, lambert(0xffffff));
   pole.position.y = 3;

@@ -12,10 +12,12 @@ import { createClouds, createLights, SKY_COLOR } from './scene/sky';
 import { CameraRig, FOLLOW_STYLE_LABEL, type CameraMode, type FollowStyle, type ViewId } from './camera/CameraRig';
 import { constructorOf, ENTRIES, PLAYER_ENTRY_ID } from './data/roster';
 import { Race } from './race/Race';
+import { TurfWear } from './race/TurfWear';
 import { RACE_CONFIG } from './race/raceConfig';
 import { NO_CONTROLS, type RaceHorse } from './race/RaceHorse';
 import { KeyboardInput } from './race/KeyboardInput';
-import { HorseModel } from './models/HorseModel';
+import { playerControls, shiftPace } from './race/pace';
+import { HorseModel, lookOfEntry } from './models/HorseModel';
 import { RaceHud } from './ui/RaceHud';
 import { StandingsPanel } from './ui/StandingsPanel';
 import { Minimap } from './ui/Minimap';
@@ -26,11 +28,13 @@ import { StartGate } from './scene/StartGate';
  *   ?mode=race|spectate タイトルを飛ばしてシンプルレース / 観戦モードで開始
  *   ?laps=1            周回数を変更（既定 5）
  *   ?start=1300&pit=1  スタート位置（ゴール板から何 m 地点か）を変更 / 最初からピット要求 ON
- *   ?auto=1            加速キーを押しっぱなし扱い（自動走行の確認用）
+ *   ?auto=1            ペースを常にハイペースにする（確認用）
  *   ?cam=jockey        騎手視点で開始（観戦モードでは broadcast も可）
  *   ?player=5          操作する馬を出走表の番号で選ぶ（既定 1 = クロワデュノール）
  *   ?view=hill         コース確認用の視点で開始（overview / hill / pit / finish）
  *   ?preview=pit&s=380 コースのプレビュー走行で開始
+ *   ?ff=300            レースを指定秒数だけ早送りしてから表示（?mode= と一緒に使う）
+ *   &crash=60          早送り中、レース時間がこの秒数になったら注目している馬を外ラチに衝突させる（落馬・SC の確認用）
  */
 const params = new URLSearchParams(location.search);
 const numParam = (key: string) => (params.has(key) ? Number(params.get(key)) : undefined);
@@ -89,11 +93,18 @@ scene.add(clouds.group);
 // シンプルレースで操作する馬：?player=番号（出走表の番号 1〜）。指定がなければクロワデュノール
 const playerEntry = ENTRIES.find((e) => e.number === numParam('player')) ?? ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
 const race = new Race(track, numParam('laps') ?? RACE_CONFIG.laps, ENTRIES, null);
+// 馬場の荒れ度（ブロック単位）。レースをやり直すたびにきれいな芝に戻る
+const turfWear = new TurfWear(WORLD_BOUNDS);
+race.wear = turfWear;
 const startGate = new StartGate(track, race.gate, world.topAt);
 scene.add(startGate.root);
 
-const horseModels = new Map(race.horses.map((h) => [h, new HorseModel(h)] as const));
+const horseModels = new Map(race.horses.map((h) => [h, new HorseModel(lookOfEntry(h.entry))] as const));
 for (const m of horseModels.values()) scene.add(m.root);
+// 芦毛のセーフティホース（出動中だけ表示）
+const safetyModel = HorseModel.safetyHorse();
+safetyModel.root.visible = false;
+scene.add(safetyModel.root);
 const hud = new RaceHud();
 const standings = new StandingsPanel(document.querySelector('#standings tbody')!, race.horses.length);
 const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, track);
@@ -106,6 +117,8 @@ rig.setFollowSource(() => horseModels.get(race.focus)!.cameraAnchor(race.focus, 
 // --- 画面の状態（タイトル / シンプルレース / 観戦モード） ---
 type AppMode = 'title' | 'race' | 'spectate';
 let appMode: AppMode = 'title';
+/** タイトルで選んだモード（シンプルレースで落馬して観戦に切り替わっても、R で元に戻すため） */
+let chosenMode: 'race' | 'spectate' = 'race';
 /** 観戦モードのレース進行速度（1 倍 / 2 倍） */
 let speedMultiplier = 1;
 
@@ -170,10 +183,33 @@ const setFocus = (h: RaceHorse) => {
 };
 
 const debugStartS = numParam('start');
+/** モードごとの画面・カメラの設定 */
+const applyModeUi = (mode: 'race' | 'spectate') => {
+  appMode = mode;
+  document.body.dataset.mode = mode;
+  rig.followStyles = mode === 'race' ? ['chase', 'jockey'] : ['chase', 'jockey', 'broadcast'];
+};
+
+/** シンプルレースで自分の馬が落馬した：観戦カメラに切り替えて先頭の馬を追う */
+const watchAfterRetire = () => {
+  applyModeUi('spectate');
+  const leader = race.standings.find((h) => !h.retired) ?? race.standings[0];
+  setFocus(leader);
+  rig.follow(rig.followStyle);
+  race.notify('観戦カメラに切替 — R でリスタート', 3.5);
+};
+
 /** 同じモードのままレースをやり直す */
 const restartRace = () => {
   race.restart();
   startGate.reset();
+  // 落馬で観戦に切り替わっていたら、シンプルレースに戻す
+  if (chosenMode === 'race' && appMode === 'spectate' && race.player) {
+    applyModeUi('race');
+    race.focus = race.player;
+    rig.follow('chase');
+    refreshJockeyHeads();
+  }
   if (appMode === 'race' && race.player) {
     if (debugStartS !== undefined) race.player.reset(debugStartS / mpb, 0);
     if (params.get('pit') === '1') race.player.togglePitRequest();
@@ -184,11 +220,10 @@ const restartRace = () => {
 
 /** モードを選んでレースを始める */
 const startMode = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
-  appMode = mode;
-  document.body.dataset.mode = mode;
+  chosenMode = mode;
+  applyModeUi(mode);
   controls.autoRotate = false;
   race.configure(mode === 'race' ? playerEntry.id : null);
-  rig.followStyles = mode === 'race' ? ['chase', 'jockey'] : ['chase', 'jockey', 'broadcast'];
   setSpeed(1);
   restartRace();
   const style = followStyle && rig.followStyles.includes(followStyle) ? followStyle : mode === 'spectate' ? 'broadcast' : 'chase';
@@ -277,6 +312,24 @@ if (initialMode === 'race' || initialMode === 'spectate') {
     const s = params.get('s');
     rig.startPreview(params.get('preview') === 'pit', s !== null ? Number(s) : undefined);
   }
+  // 確認用：?ff=秒数 でレースを早送りしてから表示（馬場の荒れ・ペナルティなどの確認に）
+  const ff = numParam('ff');
+  if (ff) {
+    const crashAt = numParam('crash');
+    let crashed = false;
+    for (let t = 0; t < ff; t += 1 / 60) {
+      if (crashAt !== undefined && !crashed && race.time > crashAt) {
+        // 確認用：注目している馬（シンプルレースでは自分の馬）を外ラチへ（落馬 → セーフティホース出動）
+        const v = race.focus;
+        v.lateral = -v.crashLimit - 0.3;
+        crashed = true;
+      }
+      const p = race.player;
+      race.update(1 / 60, p ? playerControls(p, 0, false, race.condition) : NO_CONTROLS);
+      startGate.update(1 / 60, race);
+    }
+    rig.snapFollow();
+  }
 } else {
   showTitle();
 }
@@ -305,9 +358,11 @@ renderer.setAnimationLoop((time) => {
   if (appMode === 'race' && race.player) {
     if (pressed.has('KeyP')) race.player.togglePitRequest();
     if (pressed.has('KeyT')) race.player.cycleNextShoe();
-    const horseControls = input.horseControls(pressed);
-    if (autoRun) horseControls.accelerate = true;
-    race.update(dt, horseControls);
+    // 前進は自動。W/S はペース（巡航速度とスタミナの使い方）を 1 段階ずつ上げ下げする
+    const shift = input.paceShift(pressed);
+    if (shift !== 0) shiftPace(race.player, shift);
+    if (autoRun) race.player.paceLevel = 'high';
+    race.update(dt, playerControls(race.player, input.steer(), pressed.has('Space'), race.condition));
   } else if (appMode === 'spectate') {
     if (pressed.has('ArrowLeft')) setFocus(neighbor(-1));
     if (pressed.has('ArrowRight')) setFocus(neighbor(1));
@@ -315,7 +370,12 @@ renderer.setAnimationLoop((time) => {
     for (let k = 0; k < speedMultiplier; k++) race.update(dt, NO_CONTROLS);
   }
 
+  // シンプルレースで落馬したら、倒れる様子を少し見せてから観戦カメラへ
+  if (appMode === 'race' && race.player?.retired && race.time - race.player.retireTime > 2.5) watchAfterRetire();
+
   for (const [h, model] of horseModels) model.sync(h, track, world.topAt, dt);
+  safetyModel.root.visible = race.safety.visible;
+  if (race.safety.visible) safetyModel.sync(race.safety, track, world.topAt, dt);
   startGate.update(dt, race);
   if (appMode !== 'title') {
     hud.update(race);
@@ -332,5 +392,9 @@ renderer.setAnimationLoop((time) => {
   clouds.update(dt);
   rig.update(dt);
   lights.follow(controls.target); // 影はカメラが見ている所のまわりに描く
+  world.turf.sync(turfWear); // 荒れたマスの芝の色を更新
+  // 注目している馬がスリップストリーム中なら、画面の縁に風切りエフェクト（追従・騎手視点の時）
+  const slipFx = appMode !== 'title' && cameraMode === 'follow' && rig.followStyle !== 'broadcast' && race.focus.slipstream > 0.5;
+  document.body.classList.toggle('slipstream', slipFx);
   renderer.render(scene, camera);
 });

@@ -1,7 +1,10 @@
 import type { CourseTrack } from '../course/CourseTrack';
 import { HORSESHOES, HORSESHOE_ORDER, MAX_WEAR_PENALTY, type HorseshoeType, type TrackCondition } from '../data/horseshoes';
 import type { EntryData } from '../data/roster';
-import { RACE_CONFIG as C } from './raceConfig';
+import { PACE_LEVELS, RACE_CONFIG as C, type PaceLevel } from './raceConfig';
+
+/** 発馬の結果 */
+export type StartResult = 'rocket' | 'normal' | 'late';
 
 /** 1 フレーム分の操作。プレイヤーはキーボードから、AI は思考ルーチンから作る */
 export interface HorseControls {
@@ -47,9 +50,45 @@ export class RaceHorse {
   private serviced = false;
   whipsThisLap = 0;
   whipBoost = 0;
+  /** 直前のムチの効き（0〜1。スタミナが少ないほど弱い） */
+  private whipPower = 1;
   private whipCooldown = 0;
+  /** 馬番（ゲート番号 1〜頭数） */
+  postNumber = 0;
+  /** 今のペース（巡航速度とスタミナの使い方） */
+  paceLevel: PaceLevel = 'normal';
+  /** 発馬：ゲートが開いてから走り出すまでの遅れ（秒）、ロケットスタートの残り時間、結果 */
+  startDelay = 0;
+  startBoost = 0;
+  startResult: StartResult | null = null;
   /** ムチを振った直後のアニメーション用（1 → 0） */
   whipAnim = 0;
+  /** タイムペナルティの合計（秒）。ゴールタイムに加算する */
+  penaltySeconds = 0;
+  /** 今いるブロックの荒れ度（0〜1）。Race が毎フレーム入れる */
+  groundWear = 0;
+  /** 最後に荒らしたマス（同じマスに留まっている間は何度も荒らさない） */
+  lastWearCell = -1;
+  /** スリップストリーム：Race が判定（true/false）し、ここで 0〜1 になめらかに効かせる */
+  slipstreamTarget = false;
+  slipstream = 0;
+  /** 落馬してリタイア（DNF）した */
+  retired = false;
+  /** 落馬したレース時間（順位表でリタイアの順を決める） */
+  retireTime = 0;
+  private retireTimer = 0;
+  /** 倒れ具合（0 = 立っている 〜 1 = 横倒し）。描画用 */
+  fallen = 0;
+  /** レース側が決める速度の上限（m/s）。セーフティホース中の 50km/h 制限・追い越し禁止 */
+  speedCap = Infinity;
+  /** STOP & GO ペナルティ：次のピットインでボックスに完全停止する */
+  stopGoPending = false;
+  private servingStopGo = false;
+  /** 最後に接触・押し出しをしてきた馬と時刻（落馬させた馬を判定するため） */
+  lastHitBy: RaceHorse | null = null;
+  lastHitAt = -Infinity;
+  /** 最後の接触ペナルティ（相手を落馬させた時に STOP & GO へ置き換える） */
+  lastContactPenalty: { victim: RaceHorse; at: number } | null = null;
   /** ゴール板の通過回数 */
   lineCrossings = 0;
   /** 規定周回を走り終えた */
@@ -74,6 +113,15 @@ export class RaceHorse {
   onCrossLine?: (horse: RaceHorse) => void;
   /** ピット作業が終わった時に呼ばれる */
   onPitComplete?: (horse: RaceHorse, from: HorseshoeType, to: HorseshoeType) => void;
+  /** タイムペナルティを受けた時に呼ばれる */
+  onPenalty?: (horse: RaceHorse, seconds: number, reason: string) => void;
+  /** STOP & GO を消化した時に呼ばれる */
+  onStopGoServed?: (horse: RaceHorse) => void;
+
+  /** STOP & GO でピットボックスに停止中 */
+  get isServingStopGo(): boolean {
+    return this.servingStopGo;
+  }
 
   constructor(
     readonly track: CourseTrack,
@@ -125,8 +173,52 @@ export class RaceHorse {
     this.lapTimes = [];
     this.lapStartTime = 0;
     this.steerLocked = false;
+    this.paceLevel = 'normal';
+    this.whipPower = 1;
+    this.startDelay = 0;
+    this.startBoost = 0;
+    this.startResult = null;
+    this.penaltySeconds = 0;
+    this.groundWear = 0;
+    this.lastWearCell = -1;
+    this.slipstreamTarget = false;
+    this.slipstream = 0;
+    this.retired = false;
+    this.retireTime = 0;
+    this.retireTimer = 0;
+    this.fallen = 0;
+    this.speedCap = Infinity;
+    this.stopGoPending = false;
+    this.servingStopGo = false;
+    this.lastHitBy = null;
+    this.lastHitAt = -Infinity;
+    this.lastContactPenalty = null;
     this.distance = 0;
     this.startedBehindLine = this.track.diff(this.s, this.track.def.finishS) < 0;
+  }
+
+  /**
+   * ゲートが開いた瞬間の反応を決める（運＋賢さ・パワー補正）。
+   *  - ロケットスタート：遅れなし＋最初の数秒の加速が増す
+   *  - 普通：わずかな反応の遅れ
+   *  - 出遅れ：ワンテンポ遅れて走り出す
+   */
+  rollStart(rand: () => number): StartResult {
+    const st = this.entry.horse.stats;
+    const q = rand() * C.startLuckWeight + ((st.intelligence + st.power) / 20) * (1 - C.startLuckWeight);
+    const between = (r: readonly [number, number]) => r[0] + rand() * (r[1] - r[0]);
+    if (q >= C.rocketStartThreshold) {
+      this.startDelay = 0;
+      this.startBoost = C.rocketDuration;
+      this.startResult = 'rocket';
+    } else if (q < C.lateStartThreshold) {
+      this.startDelay = between(C.lateReaction);
+      this.startResult = 'late';
+    } else {
+      this.startDelay = between(C.normalReaction);
+      this.startResult = 'normal';
+    }
+    return this.startResult;
   }
 
   /** 完了した周回数（スタート直後のゴール板通過は数えない） */
@@ -142,8 +234,41 @@ export class RaceHorse {
     return this.shoe === 'SOFT' ? 'HARD' : 'SOFT';
   }
 
+  /** 柵に衝突して落馬：リタイア（DNF） */
+  retire(raceTime: number) {
+    if (this.retired) return;
+    this.retired = true;
+    this.retireTime = raceTime;
+    this.retireTimer = 0;
+    this.pitRequested = false;
+    this.pitPhase = 'none';
+    this.slipstream = 0;
+    this.whipBoost = 0;
+  }
+
+  /** 馬の中心がこれより外（|lateral|）に出たら柵に衝突（ブロック） */
+  get crashLimit(): number {
+    const mpb = this.track.def.metersPerBlock;
+    return this.track.railLateral - (C.horseHalfWidth + C.railPostHalfWidth) / mpb;
+  }
+
+  /** 内ラチ・外ラチまでの近い方の距離（m）。HUD の注意表示用 */
+  get railDistance(): number {
+    const mpb = this.track.def.metersPerBlock;
+    const toOuter = this.crashLimit + this.lateral;
+    const toInner = this.track.innerRailOpenAt(this.s) ? Infinity : this.crashLimit - this.lateral;
+    return Math.min(toOuter, toInner) * mpb;
+  }
+
+  /** STOP & GO を科す（次のピットインを強制） */
+  giveStopAndGo() {
+    this.stopGoPending = true;
+    this.pitRequested = true;
+  }
+
   togglePitRequest() {
     if (this.inPit) return; // ピットレーンに入ったら取り消せない
+    if (this.stopGoPending && this.pitRequested) return; // STOP & GO を消化するまでは取り消せない
     this.pitRequested = !this.pitRequested;
     if (!this.pitRequested && this.pitPhase === 'approach') this.pitPhase = 'none';
   }
@@ -163,14 +288,20 @@ export class RaceHorse {
     }
     const slopeEffect = C.slopeEffectBase - st.power * C.slopeEffectPerStat;
     top *= Math.min(1.15, Math.max(0.8, 1 - this.track.slopeAt(this.s) * slopeEffect));
-    if (this.whipBoost > 0) top *= 1 + C.whipBoostBase + st.intelligence * C.whipBoostPerStat;
+    if (this.whipBoost > 0) top *= 1 + (C.whipBoostBase + st.intelligence * C.whipBoostPerStat) * this.whipPower;
+    // 荒れた馬場：柔らかい蹄鉄ほど大きく減速（ピットレーンは対象外）
+    if (this.pitPhase !== 'lane') top *= 1 - this.groundWear * C.roughPenalty[this.shoe];
+    // スリップストリーム：前の馬の風よけで +3km/h
+    top += C.slipstreamSpeedBonus * this.slipstream;
+    // セーフティホース中の速度制限・追い越し禁止（ピットレーンでは別の制限がかかる）
+    if (this.pitPhase !== 'lane') top = Math.min(top, this.speedCap);
     return top;
   }
 
   /**
-   * @param canRace false の間（スタート前・ゴール後）は加速できない
+   * @param raceRunning false の間（スタート前・ゴール後）は走れない
    */
-  update(dt: number, c: HorseControls, canRace: boolean, condition: TrackCondition) {
+  update(dt: number, c: HorseControls, raceRunning: boolean, condition: TrackCondition) {
     const track = this.track;
     const def = track.def;
     const pit = def.pitLane;
@@ -179,16 +310,48 @@ export class RaceHorse {
     /** 速度・距離の設定値（m）をコース上の位置（ブロック）に換算する */
     const mpb = def.metersPerBlock;
 
+    // --- 落馬：倒れて止まり、しばらくしたらコース脇（ラチの外）へ退避 ---
+    if (this.retired) {
+      this.retireTimer += dt;
+      this.speed = approach(this.speed, 0, 14 * dt);
+      this.s = track.wrap(this.s + (this.speed * dt) / mpb);
+      this.whipAnim = 0;
+      if (this.retireTimer < C.retireFallSeconds) {
+        this.fallen = Math.min(1, this.retireTimer / 0.4);
+      } else {
+        this.fallen = 0;
+        const side = this.lateral >= 0 ? 1 : -1;
+        this.lateral = side * (track.railLateral + C.retireClearOffset / mpb);
+      }
+      this.lateralVelocity = 0;
+      return;
+    }
+
+    // ゲートが開いても、反応が遅れている間（出遅れ）はまだ走り出さない
+    if (raceRunning && this.startDelay > 0) this.startDelay = Math.max(0, this.startDelay - dt);
+    const canRace = raceRunning && this.startDelay <= 0;
+    if (canRace) this.startBoost = Math.max(0, this.startBoost - dt);
+
     this.whipCooldown = Math.max(0, this.whipCooldown - dt);
     this.whipBoost = Math.max(0, this.whipBoost - dt);
     this.whipAnim = Math.max(0, this.whipAnim - dt * 3);
+    // スリップストリームは 0.3 秒ほどでかかり、抜けるとすぐ切れる
+    this.slipstream = approach(this.slipstream, this.slipstreamTarget && canRace ? 1 : 0, dt * (this.slipstreamTarget ? 3.5 : 5));
 
     // --- ピット停止中 ---
     if (this.pitPhase === 'stopped') {
       this.speed = 0;
       this.stamina = Math.min(100, this.stamina + C.pitStaminaRecover * dt);
       this.pitTimer -= dt;
-      if (this.pitTimer <= 0) {
+      if (this.pitTimer <= 0 && this.servingStopGo) {
+        // STOP & GO 消化：作業はせず（蹄鉄はそのまま）発進
+        this.servingStopGo = false;
+        this.stopGoPending = false;
+        this.serviced = true;
+        this.pitRequested = false;
+        this.pitPhase = 'lane';
+        this.onStopGoServed?.(this);
+      } else if (this.pitTimer <= 0) {
         const from = this.shoe;
         this.shoe = this.nextShoe;
         this.shoeWear = 0;
@@ -204,11 +367,20 @@ export class RaceHorse {
 
     // --- ムチ ---
     if (c.whip && canRace && this.whipCooldown <= 0 && this.pitPhase === 'none') {
+      // 疲れているほどムチへの反応が鈍い
+      this.whipPower = C.whipTiredEffect + (1 - C.whipTiredEffect) * (this.stamina / 100);
       this.whipBoost = C.whipDuration;
       this.whipCooldown = C.whipCooldown;
       this.whipAnim = 1;
       this.stamina = Math.max(0, this.stamina - C.whipStaminaCost);
       this.whipsThisLap++;
+      // 叩いた瞬間にグッと伸びる
+      this.speed += C.whipImpulse * this.whipPower;
+      // 1 周 5 回目以降のムチは 1 回ごとに +5 秒
+      if (this.whipsThisLap >= C.whipPenaltyCount) {
+        this.penaltySeconds += C.whipPenaltySeconds;
+        this.onPenalty?.(this, C.whipPenaltySeconds, 'EXCESSIVE WHIP');
+      }
     }
 
     // --- 速度 ---
@@ -223,7 +395,9 @@ export class RaceHorse {
       }
     }
 
-    const accel = C.accelBase + st.power * C.accelPerStat;
+    let accel = C.accelBase + st.power * C.accelPerStat;
+    if (this.whipBoost > 0) accel *= 1 + (C.whipAccelMultiplier - 1) * this.whipPower;
+    if (this.startBoost > 0) accel *= C.rocketAccelMultiplier;
     if (!canRace) {
       // スタート前は停止、ゴール後はキャンター程度までゆっくり落とす
       this.speed = this.finished ? approach(this.speed, 6, C.brakeDecel * 0.4 * dt) : 0;
@@ -247,7 +421,12 @@ export class RaceHorse {
       const drainK = C.staminaDrainBase - st.stamina * C.staminaDrainPerStat;
       let rate = drainK * (this.speed / baseTop - C.staminaCruiseRatio);
       rate += Math.max(0, track.slopeAt(this.s)) * C.staminaHillDrain * (1.2 - st.power * 0.05) * (this.speed / baseTop);
-      if (rate < 0) rate = Math.max(-C.staminaRecoverMax, rate * 0.5);
+      // ペース：ハイペースは消耗が増え、折り合うと回復しやすい
+      const pace = PACE_LEVELS[this.paceLevel];
+      if (rate > 0) {
+        // スリップストリーム中は風よけで消耗が大きく減る
+        rate *= pace.drain * C.staminaDrainScale * (1 - C.slipstreamDrainCut * this.slipstream);
+      } else rate = Math.max(-C.staminaRecoverMax * pace.recover, rate * 0.5 * pace.recover);
       this.stamina = Math.min(100, Math.max(0, this.stamina - rate * dt));
     }
 
@@ -295,11 +474,13 @@ export class RaceHorse {
       const target = center + (nearBox || this.pitTimer > 0 ? workLane : -workLane * 0.75);
       this.lateral = approach(this.lateral, target, (C.pitLaneSteerRate / mpb) * dt);
     } else if (this.pitPhase === 'none' && !this.steerLocked) {
-      // 本コース上だけプレイヤーが進路を取れる（ラチの内側に収める）
+      // 本コース上だけ進路を取れる。ラチぎりぎりまで寄れるが、越えたら柵に衝突（落馬判定は Race で）。
+      // 内ラチが開いているピット出入口だけは、コースの端で止まる
       const grip = Math.min(1, this.speed / 6);
       this.lateral += c.steer * (C.steerRate / mpb) * grip * dt;
-      const limit = half - C.railMargin / mpb;
-      this.lateral = Math.max(-limit, Math.min(limit, this.lateral));
+      const over = this.crashLimit + 0.05;
+      const innerLimit = track.innerRailOpenAt(this.s) ? half - 0.2 : over;
+      this.lateral = Math.max(-over, Math.min(innerLimit, this.lateral));
     }
     this.lateralVelocity = dt > 0 ? ((this.lateral - prevLat) * mpb) / dt : 0;
   }
@@ -319,7 +500,9 @@ export class RaceHorse {
       this.s = stopS;
       this.speed = 0;
       this.pitPhase = 'stopped';
-      this.pitTimer = C.pitWorkBase - this.entry.jockey.strategy * C.pitWorkPerStat;
+      // STOP & GO なら作業なしで決められた時間だけ停止。それ以外は蹄鉄交換
+      this.servingStopGo = this.stopGoPending;
+      this.pitTimer = this.servingStopGo ? C.stopGoSeconds : C.pitWorkBase - this.entry.jockey.strategy * C.pitWorkPerStat;
     }
   }
 }
