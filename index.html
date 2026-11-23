@@ -8,8 +8,25 @@
   <body>
     <div id="app"></div>
     <div id="hud">
-      <strong>Formula Derby</strong> — MVP シーン<br />
-      ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム
+      <div class="title"><strong>Formula Derby</strong> — <span id="course-name"></span></div>
+      <div class="info" id="course-info"></div>
+      <div class="buttons">
+        <button data-view="overview">1 全景</button>
+        <button data-view="hill">2 淀の坂</button>
+        <button data-view="pit">3 ピット</button>
+        <button data-view="finish">4 ゴール前</button>
+      </div>
+      <div class="buttons">
+        <button data-preview="normal">5 周回プレビュー</button>
+        <button data-preview="pit">6 ピット経由プレビュー</button>
+        <button id="toggle-labels">L ラベル</button>
+      </div>
+      <ul class="legend">
+        <li><i style="background: #64b440"></i>芝コース</li>
+        <li><i style="background: #c8a470"></i>ダート</li>
+        <li><i style="background: #969696"></i>ピットレーン / エプロン</li>
+      </ul>
+      <div class="help">ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム / Esc: プレビュー終了</div>
     </div>
     <script type="module" src="./src/main.ts"></script>
   </body>

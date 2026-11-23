@@ -19,7 +19,7 @@ export function createClouds(count: number, spread: number) {
     }
     cloud.position.set(
       (Math.random() - 0.5) * spread,
-      45 + Math.random() * 10,
+      110 + Math.random() * 20,
       (Math.random() - 0.5) * spread,
     );
     group.add(cloud);

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+type RGB = [number, number, number];
+
 /** 16x16 のピクセルアート風テクスチャを Canvas で生成する（外部画像なしで完結）。 */
 function pixelTexture(
   draw: (ctx: CanvasRenderingContext2D, rand: () => number) => void,
@@ -27,7 +29,7 @@ function pixelTexture(
 function noiseFill(
   ctx: CanvasRenderingContext2D,
   rand: () => number,
-  base: [number, number, number],
+  base: RGB,
   variance: number,
   y0 = 0,
   y1 = 16,
@@ -41,9 +43,10 @@ function noiseFill(
   }
 }
 
+const noise = (base: RGB, variance: number, seed: number) =>
+  pixelTexture((ctx, r) => noiseFill(ctx, r, base, variance), seed);
+
 export function createBlockTextures() {
-  const grassTop = pixelTexture((ctx, r) => noiseFill(ctx, r, [95, 159, 53], 40), 3);
-  const dirt = pixelTexture((ctx, r) => noiseFill(ctx, r, [134, 96, 67], 35), 7);
   const grassSide = pixelTexture((ctx, r) => {
     noiseFill(ctx, r, [134, 96, 67], 35);
     noiseFill(ctx, r, [95, 159, 53], 40, 0, 3);
@@ -55,5 +58,16 @@ export function createBlockTextures() {
       }
     }
   }, 11);
-  return { grassTop, grassSide, dirt };
+
+  return {
+    grassTop: noise([95, 159, 53], 40, 3),
+    grassSide,
+    dirt: noise([134, 96, 67], 35, 7),
+    // 芝コースは刈り込みの縞模様を出すため 2 色
+    turfA: noise([104, 190, 64], 18, 13),
+    turfB: noise([82, 164, 50], 18, 17),
+    sand: noise([200, 164, 112], 30, 19),
+    stone: noise([150, 150, 150], 30, 23),
+    white: noise([238, 238, 238], 10, 29),
+  };
 }
