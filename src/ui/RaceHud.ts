@@ -15,8 +15,11 @@ const formatOpt = (sec: number | null) => (sec === null ? '--:--.--' : formatTim
 /** 画面下の最小限のレース HUD と、中央のメッセージ */
 export class RaceHud {
   private readonly el = {
+    pos: $('h-pos'),
     lap: $('h-lap'),
     time: $('h-time'),
+    lpLap: $('lp-lap'),
+    lpTime: $('lp-time'),
     speed: $('h-speed'),
     stamina: $('h-stamina'),
     whip: $('h-whip'),
@@ -30,13 +33,18 @@ export class RaceHud {
     sub: $('c-sub'),
   };
 
-
   update(race: Race) {
     const h = race.player;
     const e = this.el;
 
+    const pos = h.finishPosition ?? race.positionOf(h);
+    e.pos.textContent = `${pos}/${race.horses.length}`;
     e.lap.textContent = `${race.currentLap}/${race.laps}`;
     e.time.textContent = formatTime(race.time);
+    // 左パネルの見出し（レース全体の周回・時間 = 先頭馬基準）
+    const leader = race.standings[0];
+    e.lpLap.textContent = `${Math.min(race.laps, leader.lapsCompleted + 1)}/${race.laps}`;
+    e.lpTime.textContent = formatTime(race.time);
     e.speed.textContent = String(Math.round(h.speed * 3.6)); // m/s → km/h
 
     e.stamina.style.width = `${h.stamina}%`;
@@ -64,9 +72,10 @@ export class RaceHud {
     if (race.phase === 'countdown') {
       big = String(Math.ceil(race.countdown));
       sub = 'W / ↑ で加速';
-    } else if (race.phase === 'finished') {
-      big = 'FINISH!';
-      sub = `タイム ${formatTime(race.time)} ・ ベスト ${formatOpt(race.bestLapTime)} ・ R でリスタート`;
+    } else if (h.finishTime !== null) {
+      // 自分がゴールしたら結果を出し続ける（他馬はまだ走っていることがある）
+      big = `FINISH! ${h.finishPosition}着`;
+      sub = `タイム ${formatTime(h.finishTime)} ・ ベスト ${formatOpt(race.bestLapTime)} ・ R でリスタート`;
     } else {
       big = race.activeMessage ?? '';
       if (h.pitPhase === 'stopped') sub = `蹄鉄交換中 ${h.shoe} → ${h.nextShoe}  ${Math.max(0, h.pitTimer).toFixed(1)}s`;

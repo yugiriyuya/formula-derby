@@ -7,6 +7,23 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <!-- 左パネル：ミニマップ（上）と順位表（下） -->
+    <div id="left-panel">
+      <div class="lp-head">
+        <span>LAP <b id="lp-lap">1/5</b></span>
+        <span id="lp-time" class="time">0:00.00</span>
+      </div>
+      <canvas id="minimap"></canvas>
+      <table id="standings">
+        <thead>
+          <tr><th>順</th><th></th><th>馬名</th><th class="gap">差</th><th>蹄</th><th>P</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- 右上：コース確認用の視点切替 -->
     <div id="hud">
       <div class="title"><strong>Formula Derby</strong> — <span id="course-name"></span></div>
       <div class="info" id="course-info"></div>
@@ -28,9 +45,11 @@
       </div>
     </div>
 
+    <!-- 右下：自分の馬の状態 -->
     <div id="race-hud">
       <div class="row lap">
-        <span class="k">LAP</span><b id="h-lap">1/5</b><span id="h-time" class="time">0:00.00</span>
+        <span class="k">順位</span><b id="h-pos">-</b>
+        <span class="k lapk">LAP</span><b id="h-lap">1/5</b><span id="h-time" class="time">0:00.00</span>
       </div>
       <div class="row speed"><b id="h-speed">0</b><span>km/h</span></div>
       <div class="row">

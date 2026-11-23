@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CourseTrack } from '../course/CourseTrack';
 import { HORSESHOES } from '../data/horseshoes';
-import { constructorOf } from '../data/roster';
+import { capColorOf, constructorOf } from '../data/roster';
 import type { RaceHorse } from '../race/RaceHorse';
 
 const lambert = (color: number) => new THREE.MeshLambertMaterial({ color });
@@ -37,7 +37,7 @@ export class HorseModel {
     const coat = lambert(horse.entry.horse.coat);
     const hair = lambert(darker(horse.entry.horse.coat, 0.45));
     const silk = lambert(team.color);
-    const cap = lambert(team.capColor);
+    const cap = lambert(capColorOf(horse.entry)); // 僚馬は帽子の色で見分ける
     const skin = lambert(0xf0c8a0);
     const white = lambert(0xf4f4f4);
     const boot = lambert(0x1a1a1a);

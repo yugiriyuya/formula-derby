@@ -12,15 +12,16 @@ body {
   width: 100%;
   height: 100%;
 }
+/* 右上：コース確認用 */
 #hud {
   position: fixed;
   top: 12px;
-  left: 12px;
-  max-width: 420px;
-  padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.6);
+  right: 12px;
+  max-width: 400px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.5);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
   border-radius: 4px;
   pointer-events: none;
@@ -54,26 +55,112 @@ body {
   background: #2f7d3a;
   border-color: #6fd17d;
 }
-#hud .legend {
-  display: flex;
-  gap: 10px;
-  margin: 6px 0 2px;
-  padding: 0;
-  list-style: none;
+/* ---------- 左パネル：順位表とミニマップ ---------- */
+#left-panel {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: 316px;
+  padding: 8px 8px 10px;
+  background: rgba(10, 14, 20, 0.72);
+  color: #fff;
   font-size: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  pointer-events: none;
 }
-#hud .legend i {
+#left-panel .lp-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px 6px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+#standings {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+#standings th {
+  padding: 2px 4px;
+  color: #999;
+  font-weight: normal;
+  font-size: 11px;
+  text-align: left;
+}
+#standings td {
+  height: 19px;
+  padding: 0 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+#standings .pos {
+  width: 30px;
+  text-align: right;
+  font-weight: 700;
+}
+#standings .color {
+  width: 14px;
+}
+#standings .swatch {
+  position: relative;
   display: inline-block;
   width: 10px;
-  height: 10px;
-  margin-right: 4px;
-  vertical-align: -1px;
+  height: 14px;
+  vertical-align: middle;
+}
+#standings .cap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 4px;
+}
+#standings .name {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#standings .gap,
+#standings th.gap {
+  text-align: right;
+  color: #ddd;
+}
+#standings .shoe {
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+#standings .pits {
+  width: 24px;
+  text-align: center;
+  color: #ccc;
+}
+#standings tr.player td {
+  background: rgba(255, 210, 58, 0.22);
+}
+#standings tr.player .name {
+  color: #ffd23a;
+  font-weight: 700;
+}
+#standings tr.pitting .pits {
+  color: #ffd23a;
+  font-weight: 700;
+}
+#standings tr.finished .pos {
+  color: #6fd17d;
+}
+#minimap {
+  display: block;
+  width: 100%;
+  height: 170px;
+  margin-bottom: 8px;
+  background: rgba(0, 0, 0, 0.25);
 }
 
-/* ---------- レース HUD ---------- */
+/* ---------- 右下：自分の馬の状態 ---------- */
 #race-hud {
   position: fixed;
-  left: 12px;
+  right: 12px;
   bottom: 12px;
   width: 250px;
   padding: 10px 12px;
@@ -156,4 +243,8 @@ body {
   margin-top: 6px;
   font-size: 18px;
   font-weight: 600;
+}
+#race-hud .lapk {
+  width: auto;
+  margin-left: 10px;
 }

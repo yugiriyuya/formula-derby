@@ -54,11 +54,21 @@ export class RaceHorse {
   lineCrossings = 0;
   /** 規定周回を走り終えた */
   finished = false;
+  /** ゴールしたレース時間（秒）と着順 */
+  finishTime: number | null = null;
+  finishPosition: number | null = null;
+  /** 各周のラップタイム（秒）と、今の周を走り始めたレース時間 */
+  lapTimes: number[] = [];
+  lapStartTime = 0;
+  /** true の間は進路を変えられない（ゲートの中など） */
+  steerLocked = false;
   private startedBehindLine = false;
   /** 走った累積距離（ブロック） */
   distance = 0;
   /** 走行アニメーションの位相 */
   gallopPhase = 0;
+  /** 停止するピットボックス前の s（僚馬と重ならないよう少しずらす） */
+  readonly pitBoxS: number;
 
   /** ゴール板を通過した時に呼ばれる */
   onCrossLine?: (horse: RaceHorse) => void;
@@ -71,9 +81,22 @@ export class RaceHorse {
     /** ピットボックスの番号（コンストラクターの並び順） */
     readonly garageIndex: number,
     readonly garageCount: number,
+    /** 同じ厩舎の前で止まる位置のずらし幅（ブロック） */
+    boxOffset = 0,
   ) {
     this.shoe = entry.startShoe;
     this.nextShoe = this.defaultNextShoe();
+    this.pitBoxS = track.wrap(track.garageS(garageIndex, garageCount) + boxOffset);
+  }
+
+  /**
+   * レースの進み具合（ブロック）。順位付けに使う。
+   * スタート直後（ゴール板の手前）は負、以降は 周回数 × 1 周 + ゴール板からの距離。
+   */
+  get progress(): number {
+    const fromLine = this.track.wrap(this.s - this.track.def.finishS);
+    if (this.startedBehindLine && this.lineCrossings === 0) return this.track.diff(this.s, this.track.def.finishS);
+    return this.lapsCompleted * this.track.length + fromLine;
   }
 
   /** スタート位置に並べる */
@@ -97,6 +120,11 @@ export class RaceHorse {
     this.whipAnim = 0;
     this.lineCrossings = 0;
     this.finished = false;
+    this.finishTime = null;
+    this.finishPosition = null;
+    this.lapTimes = [];
+    this.lapStartTime = 0;
+    this.steerLocked = false;
     this.distance = 0;
     this.startedBehindLine = this.track.diff(this.s, this.track.def.finishS) < 0;
   }
@@ -190,7 +218,7 @@ export class RaceHorse {
       cap = Math.min(cap, C.pitSpeedLimit);
       if (!this.serviced) {
         // 自分のピットボックス前でぴったり止まるよう減速
-        const dist = (track.pitOffset(track.garageS(this.garageIndex, this.garageCount)) - track.pitOffset(this.s)) * mpb;
+        const dist = (track.pitOffset(this.pitBoxS) - track.pitOffset(this.s)) * mpb;
         cap = Math.min(cap, Math.max(1, Math.sqrt(2 * C.pitLimiterDecel * 0.75 * Math.max(0, dist))));
       }
     }
@@ -259,9 +287,14 @@ export class RaceHorse {
     if (this.pitPhase === 'approach') {
       this.lateral = approach(this.lateral, pit.mergeLateral, (C.pitApproachSteerRate / mpb) * dt);
     } else if (this.pitPhase === 'lane') {
-      const target = track.pitLateralAt(this.s) ?? pit.mergeLateral;
+      // 走行中はコース側（ファストレーン）、自分のボックスが近づいたら厩舎側（作業レーン）へ寄る
+      const center = track.pitLateralAt(this.s) ?? pit.mergeLateral;
+      const toBox = track.pitOffset(this.pitBoxS) - track.pitOffset(this.s);
+      const nearBox = !this.serviced && toBox < 25 / mpb;
+      const workLane = pit.width / 4;
+      const target = center + (nearBox || this.pitTimer > 0 ? workLane : -workLane * 0.75);
       this.lateral = approach(this.lateral, target, (C.pitLaneSteerRate / mpb) * dt);
-    } else if (this.pitPhase === 'none') {
+    } else if (this.pitPhase === 'none' && !this.steerLocked) {
       // 本コース上だけプレイヤーが進路を取れる（ラチの内側に収める）
       const grip = Math.min(1, this.speed / 6);
       this.lateral += c.steer * (C.steerRate / mpb) * grip * dt;
@@ -280,7 +313,7 @@ export class RaceHorse {
   private checkPitStop() {
     if (this.pitPhase !== 'lane' || this.serviced) return;
     const track = this.track;
-    const stopS = track.garageS(this.garageIndex, this.garageCount);
+    const stopS = this.pitBoxS;
     const dist = track.pitOffset(stopS) - track.pitOffset(this.s);
     if (dist <= 0.05) {
       this.s = stopS;

@@ -16,6 +16,9 @@ import { RACE_CONFIG } from './race/raceConfig';
 import { KeyboardInput } from './race/KeyboardInput';
 import { HorseModel } from './models/HorseModel';
 import { RaceHud } from './ui/RaceHud';
+import { StandingsPanel } from './ui/StandingsPanel';
+import { Minimap } from './ui/Minimap';
+import { StartGate } from './scene/StartGate';
 
 /**
  * 確認用 URL パラメーター
@@ -23,6 +26,7 @@ import { RaceHud } from './ui/RaceHud';
  *   ?start=1300&pit=1  スタート位置（ゴール板から何 m 地点か）を変更 / 最初からピット要求 ON
  *   ?auto=1            加速キーを押しっぱなし扱い（自動走行の確認用）
  *   ?cam=jockey        騎手視点で開始
+ *   ?player=5          操作する馬を出走表の番号で選ぶ（既定 1 = クロワデュノール）
  *   ?view=hill         コース確認用の視点で開始（overview / hill / pit / finish）
  *   ?preview=pit&s=380 コースのプレビュー走行で開始
  */
@@ -78,20 +82,27 @@ scene.add(labels);
 const clouds = createClouds(30, 1800, 520);
 scene.add(clouds.group);
 
-// --- Race ---
-const playerEntry = ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
-const race = new Race(track, numParam('laps') ?? RACE_CONFIG.laps, playerEntry);
+// --- Race（出走表の全頭。プレイヤー以外は AI） ---
+// 操作する馬：?player=番号（出走表の番号 1〜）。指定がなければクロワデュノール
+const chosenEntry = ENTRIES.find((e) => e.number === numParam('player'));
+const race = new Race(track, numParam('laps') ?? RACE_CONFIG.laps, ENTRIES, chosenEntry?.id ?? PLAYER_ENTRY_ID);
+const startGate = new StartGate(track, race.gate, world.topAt);
+scene.add(startGate.root);
 const debugStartS = numParam('start');
 const restartRace = () => {
   race.restart();
+  startGate.reset();
   if (debugStartS !== undefined) race.player.reset(debugStartS / KYOTO_OUTER.metersPerBlock, 0);
   if (params.get('pit') === '1') race.player.togglePitRequest();
   rig.snapFollow();
 };
 
-const horseModel = new HorseModel(race.player);
-scene.add(horseModel.root);
+const horseModels = new Map(race.horses.map((h) => [h, new HorseModel(h)] as const));
+for (const m of horseModels.values()) scene.add(m.root);
+const horseModel = horseModels.get(race.player)!;
 const hud = new RaceHud();
+const standings = new StandingsPanel(document.querySelector('#standings tbody')!, race.horses.length);
+const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, track);
 const input = new KeyboardInput();
 
 // --- Camera rig & course HUD ---
@@ -190,8 +201,11 @@ renderer.setAnimationLoop((time) => {
   if (autoRun) horseControls.accelerate = true;
 
   race.update(dt, horseControls);
-  horseModel.sync(race.player, track, world.topAt, dt);
+  for (const [h, model] of horseModels) model.sync(h, track, world.topAt, dt);
+  startGate.update(dt, race);
   hud.update(race);
+  standings.update(dt, race);
+  minimap.update(race);
 
   clouds.update(dt);
   rig.update(dt);
