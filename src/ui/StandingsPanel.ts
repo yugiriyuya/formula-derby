@@ -26,10 +26,18 @@ const REFRESH = 0.1;
 export class StandingsPanel {
   private readonly rows: Row[] = [];
   private timer = 0;
+  /** 各行に今表示している馬（クリックでどの馬を選んだか分かるように） */
+  private shown: RaceHorse[] = [];
+  /** 行がクリックされた時（観戦モードで注目する馬を選ぶ） */
+  onSelect?: (horse: RaceHorse) => void;
 
   constructor(tbody: HTMLTableSectionElement, count: number) {
     for (let i = 0; i < count; i++) {
       const tr = document.createElement('tr');
+      tr.addEventListener('click', () => {
+        const h = this.shown[i];
+        if (h) this.onSelect?.(h);
+      });
       const td = (cls: string) => {
         const el = document.createElement('td');
         el.className = cls;
@@ -53,17 +61,24 @@ export class StandingsPanel {
     }
   }
 
+  /** 次の update ですぐ描き直す（注目する馬を切り替えた直後など） */
+  refresh() {
+    this.timer = 0;
+  }
+
   update(dt: number, race: Race) {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = REFRESH;
 
     const leader = race.standings[0];
+    this.shown = [...race.standings];
     race.standings.forEach((h, i) => {
       const r = this.rows[i];
       if (!r) return;
       const team = constructorOf(h.entry);
-      r.tr.classList.toggle('player', h === race.player);
+      // 強調するのは自分の馬（観戦モードではカメラが追っている馬）
+      r.tr.classList.toggle('focus', h === race.focus);
       r.tr.classList.toggle('pitting', h.inPit);
       r.tr.classList.toggle('finished', h.finishPosition !== null);
       r.pos.textContent = h.finishPosition !== null ? `${h.finishPosition}着` : String(i + 1);

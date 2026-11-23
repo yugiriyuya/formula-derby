@@ -45,7 +45,10 @@ export class Race {
   time = 0;
   countdown: number = RACE_CONFIG.countdownSeconds;
   condition: TrackCondition = 'good';
-  readonly player: RaceHorse;
+  /** プレイヤーが操作する馬。観戦モードでは null（全頭 AI） */
+  player: RaceHorse | null = null;
+  /** カメラ・HUD が注目している馬（シンプルレースでは常にプレイヤーの馬） */
+  focus!: RaceHorse;
   readonly horses: RaceHorse[] = [];
   readonly ai = new Map<RaceHorse, AIController>();
   /** 枠番順のゲート */
@@ -64,7 +67,7 @@ export class Race {
     readonly track: CourseTrack,
     readonly laps: number,
     entries: readonly EntryData[],
-    playerEntryId: string,
+    playerEntryId: string | null,
   ) {
     for (const e of entries) {
       const garageIndex = CONSTRUCTORS.findIndex((c) => c.id === e.constructorId);
@@ -73,13 +76,27 @@ export class Race {
       const h = new RaceHorse(track, e, garageIndex, CONSTRUCTORS.length, boxOffset);
       h.onCrossLine = (horse) => this.handleCrossLine(horse);
       h.onPitComplete = (horse, from, to) => {
-        if (horse === this.player) this.notify(`蹄鉄交換完了 ${from} → ${to}`, 2.5);
+        if (horse === this.focus) this.notify(`蹄鉄交換完了 ${from} → ${to}`, 2.5);
       };
       this.horses.push(h);
-      if (e.id !== playerEntryId) this.ai.set(h, new AIController(h));
     }
-    this.player = this.horses.find((h) => h.entry.id === playerEntryId)!;
+    this.configure(playerEntryId);
+  }
+
+  /**
+   * 誰をプレイヤーが操作するかを決めて、レースを最初からやり直す。
+   * @param playerEntryId 操作する馬。null なら観戦モード（全頭 AI）
+   */
+  configure(playerEntryId: string | null) {
+    this.player = playerEntryId ? (this.horses.find((h) => h.entry.id === playerEntryId) ?? null) : null;
+    this.ai.clear();
+    for (const h of this.horses) if (h !== this.player) this.ai.set(h, new AIController(h));
+    this.focus = this.player ?? this.horses[0];
     this.restart();
+  }
+
+  get spectating(): boolean {
+    return this.player === null;
   }
 
   restart() {
@@ -131,18 +148,18 @@ export class Race {
     return this.posts.get(h) ?? 0;
   }
 
-  /** 表示用の現在周回（1〜laps） */
+  /** 表示用の現在周回（1〜laps）。注目している馬の周回 */
   get currentLap(): number {
-    return Math.min(this.laps, this.player.lapsCompleted + 1);
+    return Math.min(this.laps, this.focus.lapsCompleted + 1);
   }
 
   get lastLapTime(): number | null {
-    const t = this.player.lapTimes;
+    const t = this.focus.lapTimes;
     return t.length ? t[t.length - 1] : null;
   }
 
   get bestLapTime(): number | null {
-    const t = this.player.lapTimes;
+    const t = this.focus.lapTimes;
     return t.length ? Math.min(...t) : null;
   }
 
@@ -266,9 +283,9 @@ export class Race {
       horse.finished = true;
       horse.finishTime = this.time;
       horse.finishPosition = ++this.finishCount;
-      if (horse === this.player) this.notify(`FINISH! ${horse.finishPosition}着`, 4);
+      if (horse === this.focus) this.notify(`FINISH! ${horse.finishPosition}着`, 4);
       if (this.horses.every((h) => h.finished)) this.phase = 'finished';
-    } else if (horse === this.player) {
+    } else if (horse === this.focus) {
       if (horse.lapsCompleted === this.laps - 1) this.notify('ファイナルラップ！', 2.5);
       else this.notify(`LAP ${horse.lapsCompleted + 1}/${this.laps}`, 2);
     }

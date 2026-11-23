@@ -135,10 +135,10 @@ body {
   text-align: center;
   color: #ccc;
 }
-#standings tr.player td {
+#standings tr.focus td {
   background: rgba(255, 210, 58, 0.22);
 }
-#standings tr.player .name {
+#standings tr.focus .name {
   color: #ffd23a;
   font-weight: 700;
 }
@@ -247,4 +247,168 @@ body {
 #race-hud .lapk {
   width: auto;
   margin-left: 10px;
+}
+
+/* ---------- 自分の馬（注目している馬）の名前 ---------- */
+#race-hud .who b {
+  font-size: 16px;
+}
+#race-hud .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 16px;
+}
+#race-hud .team {
+  margin-top: -2px;
+}
+
+/* ---------- 観戦モードの操作パネル（右上） ---------- */
+#spectator-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 330px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+#spectator-panel .focus-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+#spectator-panel #sp-focus {
+  flex: 1;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#spectator-panel .buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+#spectator-panel .k {
+  width: 34px;
+  color: #aaa;
+}
+#spectator-panel .help {
+  margin-top: 6px;
+  color: #ccc;
+  font-size: 11px;
+}
+#spectator-panel button,
+#hud button.to-title {
+  pointer-events: auto;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: #3b3b3b;
+  border: 2px solid #777;
+  border-radius: 0;
+  cursor: pointer;
+}
+#spectator-panel button:hover {
+  background: #555;
+}
+#spectator-panel button.active {
+  background: #2f7d3a;
+  border-color: #6fd17d;
+}
+#spectator-panel .to-title,
+#hud .to-title {
+  margin-left: auto;
+  background: #5a2a2a;
+  border-color: #a05050;
+}
+
+/* 観戦モードでは順位表の行をクリックして注目する馬を選べる */
+body[data-mode='spectate'] #standings tbody tr {
+  pointer-events: auto;
+  cursor: pointer;
+}
+body[data-mode='spectate'] #standings tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- 画面ごとの表示切替 ---------- */
+body[data-mode='race'] #spectator-panel,
+body[data-mode='spectate'] #hud,
+body[data-mode='title'] #left-panel,
+body[data-mode='title'] #race-hud,
+body[data-mode='title'] #hud,
+body[data-mode='title'] #spectator-panel,
+body[data-mode='title'] #center-msg {
+  display: none;
+}
+body:not([data-mode='title']) #title-screen {
+  display: none;
+}
+
+/* ---------- タイトル（モード選択） ---------- */
+#title-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.45));
+}
+#title-screen .title-box {
+  padding: 28px 36px 30px;
+  background: rgba(10, 14, 20, 0.78);
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  text-align: center;
+}
+#title-screen h1 {
+  margin: 0;
+  font-size: 46px;
+  letter-spacing: 2px;
+  text-shadow: 0 3px 0 #000;
+}
+#title-screen .sub {
+  margin: 6px 0 22px;
+  color: #ccc;
+}
+#title-screen .menu {
+  display: flex;
+  gap: 14px;
+}
+#title-screen .menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 230px;
+  padding: 16px 12px;
+  font: inherit;
+  color: #fff;
+  background: #2f7d3a;
+  border: 3px solid #6fd17d;
+  border-radius: 0;
+  cursor: pointer;
+}
+#title-screen .menu button#btn-spectate {
+  background: #2b4f8a;
+  border-color: #6f9ce0;
+}
+#title-screen .menu button:hover {
+  filter: brightness(1.15);
+}
+#title-screen .menu b {
+  font-size: 20px;
+}
+#title-screen .menu small {
+  color: #e6e6e6;
 }

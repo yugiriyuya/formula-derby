@@ -38,6 +38,7 @@
         <button data-preview="normal">5 周回プレビュー</button>
         <button data-preview="pit">6 ピット経由プレビュー</button>
         <button id="toggle-labels">L ラベル</button>
+        <button class="to-title">タイトルへ</button>
       </div>
       <div class="help">
         W/↑ 加速 ・ S/↓ 減速 ・ A D/← → 進路 ・ Space ムチ<br />
@@ -45,8 +46,33 @@
       </div>
     </div>
 
-    <!-- 右下：自分の馬の状態 -->
+    <!-- 右上：観戦モードの操作 -->
+    <div id="spectator-panel">
+      <div class="title"><strong>観戦モード</strong> — 全12頭 AI</div>
+      <div class="focus-row">
+        <button id="sp-prev" title="1つ上の順位の馬（←）">◀</button>
+        <span id="sp-focus">-</span>
+        <button id="sp-next" title="1つ下の順位の馬（→）">▶</button>
+      </div>
+      <div class="buttons">
+        <span class="k">視点</span>
+        <button data-cam="chase">追従</button>
+        <button data-cam="jockey">騎手</button>
+        <button data-cam="broadcast">中継俯瞰</button>
+      </div>
+      <div class="buttons">
+        <span class="k">速度</span>
+        <button data-speed="1">1倍速</button>
+        <button data-speed="2">2倍速</button>
+        <button class="to-title">タイトルへ</button>
+      </div>
+      <div class="help">← → / 順位表クリック：注目する馬 ・ C：視点 ・ 1 / 2：速度 ・ R：再レース</div>
+    </div>
+
+    <!-- 右下：自分の馬（観戦モードでは注目している馬）の状態 -->
     <div id="race-hud">
+      <div class="row who"><span id="h-swatch" class="swatch"></span><b id="h-name">-</b></div>
+      <div class="row team"><small id="h-team">-</small></div>
       <div class="row lap">
         <span class="k">順位</span><b id="h-pos">-</b>
         <span class="k lapk">LAP</span><b id="h-lap">1/5</b><span id="h-time" class="time">0:00.00</span>
@@ -67,6 +93,24 @@
     </div>
 
     <div id="center-msg"><div id="c-big"></div><div id="c-sub"></div></div>
+
+    <!-- タイトル（モード選択） -->
+    <div id="title-screen">
+      <div class="title-box">
+        <h1>Formula Derby</h1>
+        <p class="sub">京都・芝外回り（右回り）・5周・12頭</p>
+        <div class="menu">
+          <button id="btn-race">
+            <b>シンプルレース</b>
+            <small>自分で騎乗（<span id="title-player">-</span>）</small>
+          </button>
+          <button id="btn-spectate">
+            <b>観戦モード</b>
+            <small>全12頭を AI で観戦</small>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="./src/main.ts"></script>
   </body>

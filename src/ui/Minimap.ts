@@ -91,13 +91,13 @@ export class Minimap {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.drawImage(this.background, 0, 0);
 
-    // 後ろの順位から描いて、上位とプレイヤーを上に重ねる
-    const order = [...race.standings].reverse().filter((h) => h !== race.player);
-    order.push(race.player);
+    // 後ろの順位から描いて、上位と注目している馬（自分の馬）を上に重ねる
+    const order = [...race.standings].reverse().filter((h) => h !== race.focus);
+    order.push(race.focus);
     for (const h of order) {
       const p = this.track.frameAt(h.s, h.lateral).position;
       const [x, y] = this.toMap(p.x, p.z);
-      const isPlayer = h === race.player;
+      const isPlayer = h === race.focus;
       const r = (isPlayer ? 5 : 3.5) * this.dpr;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);

@@ -4,8 +4,14 @@ import type { CourseTrack } from '../course/CourseTrack';
 
 export type ViewId = 'overview' | 'hill' | 'pit' | 'finish';
 export type CameraMode = 'orbit' | 'transition' | 'preview' | 'follow';
-/** chase = 後方視点, jockey = 騎手視点 */
-export type FollowStyle = 'chase' | 'jockey';
+/** chase = 後方視点（三人称）, jockey = 騎手視点（一人称）, broadcast = 中継俯瞰視点 */
+export type FollowStyle = 'chase' | 'jockey' | 'broadcast';
+
+export const FOLLOW_STYLE_LABEL: Record<FollowStyle, string> = {
+  chase: '後方視点',
+  jockey: '騎手視点',
+  broadcast: '中継俯瞰',
+};
 
 /** 追従対象の情報 */
 export interface FollowAnchor {
@@ -72,13 +78,18 @@ const BOB_CHASE = 0.05;
 const BOB_JOCKEY = 0.07;
 /** 別の視点から追従に切り替える時の補間時間 */
 const ENTER_BLEND_SECONDS = 0.8;
+/** 中継俯瞰：内馬場側・後ろ・上から（m）。ゆっくりパンしながら馬群とコースを広く映す */
+const BROADCAST_SIDE_M = 60;
+const BROADCAST_BACK_M = 25;
+const BROADCAST_HEIGHT_M = 40;
+const BROADCAST_FOV = 50;
 
 /**
  * カメラ制御。
  *  - orbit     : OrbitControls で自由に操作
  *  - transition: 視点プリセットへ補間移動
  *  - preview   : コース（またはピット経由ルート）を馬の目線で周回
- *  - follow    : レース中の馬を追従（後方視点 / 騎手視点）。速度に応じて視野角が広がる
+ *  - follow    : レース中の馬を追従（後方視点 / 騎手視点 / 中継俯瞰）。後方・騎手は速度に応じて視野角が広がる
  */
 export class CameraRig {
   private readonly views: Record<ViewId, View>;
@@ -95,7 +106,12 @@ export class CameraRig {
   private followFresh = true;
   private enterBlend = 1;
   private readonly enterFrom = { position: new THREE.Vector3(), look: new THREE.Vector3() };
+  /** 中継俯瞰カメラのなめらかにした位置・注視点 */
+  private readonly broadcastPos = new THREE.Vector3();
+  private readonly broadcastLook = new THREE.Vector3();
   followStyle: FollowStyle = 'chase';
+  /** C キーで切り替える視点の順番（シンプルレースは後方⇔騎手、観戦モードは中継俯瞰も） */
+  followStyles: FollowStyle[] = ['chase', 'jockey'];
 
   /** モード・追従スタイルが変わった時に呼ばれる */
   onModeChange?: (mode: CameraMode, viaPit: boolean) => void;
@@ -163,20 +179,32 @@ export class CameraRig {
   /** 追従カメラに切り替える。style を省略すると直前のスタイル */
   follow(style: FollowStyle = this.followStyle) {
     if (!this.followSource) return;
+    if (style === 'broadcast' && this.followStyle !== 'broadcast') {
+      // 中継俯瞰は今のカメラ位置からゆっくり引いていく
+      this.broadcastPos.copy(this.camera.position);
+      this.broadcastLook.copy(this.controls.target);
+    }
     this.followStyle = style;
     // 別の視点から来た時は、今の位置から馬の後ろへ滑らかに寄っていく
-    if (this._mode !== 'follow' && !this.followFresh) {
-      this.enterFrom.position.copy(this.camera.position);
-      this.enterFrom.look.copy(this.controls.target);
-      this.enterBlend = 0;
-    }
+    if (this._mode !== 'follow' && !this.followFresh) this.retarget();
     this.setMode('follow');
   }
 
-  /** C キー：追従中なら後方⇔騎手を切り替え、それ以外なら追従に戻る */
+  /** 追従する馬が変わった時：今のカメラ位置から新しい馬へ滑らかに移る */
+  retarget() {
+    this.enterFrom.position.copy(this.camera.position);
+    this.enterFrom.look.copy(this.controls.target);
+    this.enterBlend = 0;
+  }
+
+  /** C キー：追従中なら次の視点へ（followStyles の順）、それ以外なら追従に戻る */
   toggleFollowStyle() {
-    if (this._mode === 'follow') this.follow(this.followStyle === 'chase' ? 'jockey' : 'chase');
-    else this.follow();
+    if (this._mode !== 'follow') {
+      this.follow();
+      return;
+    }
+    const i = this.followStyles.indexOf(this.followStyle);
+    this.follow(this.followStyles[(i + 1) % this.followStyles.length]);
   }
 
   /** 追従カメラを補間なしで馬の位置へ合わせる（初期化・リスタート用） */
@@ -244,6 +272,29 @@ export class CameraRig {
 
     const desired = new THREE.Vector3();
     const look = new THREE.Vector3();
+    if (this.followStyle === 'broadcast') {
+      // 内馬場側（進行方向の右）の高い所から、馬とその周りのコースを見下ろす。
+      // 外側にはスタンドがあり、ホームストレッチで屋根にかぶるため内側に置く
+      const mpb = this.track.def.metersPerBlock;
+      const inward = new THREE.Vector3(-this.smoothDir.z, 0, this.smoothDir.x);
+      desired
+        .copy(a.position)
+        .addScaledVector(inward, BROADCAST_SIDE_M / mpb)
+        .addScaledVector(this.smoothDir, -BROADCAST_BACK_M / mpb);
+      desired.y = a.position.y + BROADCAST_HEIGHT_M / mpb;
+      look.copy(a.position).addScaledVector(this.smoothDir, 10 / mpb);
+      // ゆっくりパンする（中継カメラらしく）。切り替え直後は位置を合わせる
+      const k = this.followFresh ? 1 : 1 - Math.exp(-dt * 1.8);
+      this.broadcastPos.lerp(desired, k);
+      this.broadcastLook.lerp(look, Math.min(1, k * 2));
+      this.camera.position.copy(this.broadcastPos);
+      this.followLook.copy(this.broadcastLook);
+      this.camera.lookAt(this.followLook);
+      this.controls.target.copy(this.followLook);
+      this.followFresh = false;
+      this.enterBlend = 1;
+      return BROADCAST_FOV;
+    }
     if (this.followStyle === 'jockey') {
       desired.copy(a.position).addScaledVector(a.dir, JOCKEY_FORWARD);
       desired.y = a.position.y + JOCKEY_EYE + bob * BOB_JOCKEY;

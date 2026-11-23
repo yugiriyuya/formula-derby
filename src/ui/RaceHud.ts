@@ -1,4 +1,5 @@
 import { HORSESHOES } from '../data/horseshoes';
+import { constructorOf } from '../data/roster';
 import type { Race } from '../race/Race';
 import { RACE_CONFIG } from '../race/raceConfig';
 
@@ -15,6 +16,9 @@ const formatOpt = (sec: number | null) => (sec === null ? '--:--.--' : formatTim
 /** 画面下の最小限のレース HUD と、中央のメッセージ */
 export class RaceHud {
   private readonly el = {
+    name: $('h-name'),
+    team: $('h-team'),
+    swatch: $('h-swatch'),
     pos: $('h-pos'),
     lap: $('h-lap'),
     time: $('h-time'),
@@ -34,8 +38,14 @@ export class RaceHud {
   };
 
   update(race: Race) {
-    const h = race.player;
+    // シンプルレースでは自分の馬、観戦モードではカメラが追っている馬
+    const h = race.focus;
     const e = this.el;
+
+    const team = constructorOf(h.entry);
+    e.name.textContent = h.entry.horse.name;
+    e.team.textContent = `${team.name}（${team.nameEn}）・${h.entry.jockey.name}`;
+    e.swatch.style.background = `#${team.color.toString(16).padStart(6, '0')}`;
 
     const pos = h.finishPosition ?? race.positionOf(h);
     e.pos.textContent = `${pos}/${race.horses.length}`;
@@ -71,10 +81,15 @@ export class RaceHud {
     let sub = '';
     if (race.phase === 'countdown') {
       big = String(Math.ceil(race.countdown));
-      sub = 'W / ↑ で加速';
+      sub = race.spectating ? '観戦モード — ← → で注目する馬を切替' : 'W / ↑ で加速';
+    } else if (race.spectating && race.phase === 'finished') {
+      // 観戦モード：全頭ゴールしたら結果
+      const winner = race.standings[0];
+      big = 'レース終了';
+      sub = `優勝 ${winner.entry.horse.name}（${formatOpt(winner.finishTime)}）・ R で再レース ・ タイトルへ戻るボタン`;
     } else if (h.finishTime !== null) {
-      // 自分がゴールしたら結果を出し続ける（他馬はまだ走っていることがある）
-      big = `FINISH! ${h.finishPosition}着`;
+      // ゴールしたら結果を出し続ける（他馬はまだ走っていることがある）
+      big = race.spectating ? `${h.entry.horse.name} ${h.finishPosition}着` : `FINISH! ${h.finishPosition}着`;
       sub = `タイム ${formatTime(h.finishTime)} ・ ベスト ${formatOpt(race.bestLapTime)} ・ R でリスタート`;
     } else {
       big = race.activeMessage ?? '';
