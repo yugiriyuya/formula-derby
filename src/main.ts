@@ -6,6 +6,8 @@ import { loadSettings, saveSettings, type LapsOption } from './data/settings';
 import { runQualifying, type QualifyingResult } from './race/Qualifying';
 import { QualifyingScreen } from './ui/QualifyingScreen';
 import { SeriesScreen } from './ui/SeriesScreen';
+import { EditScreen } from './ui/EditScreen';
+import { aiFactor, applyEdits, loadEdits } from './data/edits';
 import { isFinished, loadSeries, newSeries, randomWind, recordRound, saveSeries, type SeriesState } from './race/Series';
 import { WeatherView } from './scene/WeatherView';
 import type { Weather } from './race/Race';
@@ -44,6 +46,8 @@ import type { ReplayHorseFrame } from './race/ReplayRecorder';
  *   ?qual=1            予選ありで開始（?mode= と一緒に使う。予選結果の画面で止まる）
  *   ?weather=rain      天候を指定（sunny / rain。?mode= と一緒に使う）
  *   ?field=16          出走頭数（12 / 16）
+ *   ?mode=preview      コース下見で開始
+ *   ?edit=1&tab=horses 設定（エディット）画面を開く
  *   &series=1          早送りでレースが終わったら、シリーズ戦の 1 戦目として順位画面を開く（final = 全戦終了の画面。保存はしない）
  *   ?laps=1            周回数を変更（既定 5）
  *   ?start=1300&pit=1  スタート位置（ゴール板から何 m 地点か）を変更 / 最初からピット要求 ON
@@ -63,6 +67,9 @@ const container = document.getElementById('app')!;
 
 // --- レース設定（タイトルで選ぶ。ブラウザに保存） ---
 const settings = loadSettings();
+// 設定（エディット）：名前・能力値などを出走表に反映（起動時だけ。変更したら読み込み直す）
+const edits = loadEdits();
+applyEdits(edits);
 // 確認用に ?mode= でタイトルを飛ばした時は、保存した設定ではなく URL の指定（既定 5 周・予選なし）で走る
 if (params.has('mode')) {
   settings.laps = 5;
@@ -131,6 +138,8 @@ const weatherView = new WeatherView(scene, lights, world.turf.mesh.material as T
 // シンプルレースで操作する馬：?player=番号（出走表の番号 1〜）。指定がなければクロワデュノール
 const playerEntry = FIELD.find((e) => e.number === numParam('player')) ?? ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
 const race = new Race(track, numParam('laps') ?? settings.laps ?? RACE_CONFIG.laps, FIELD, null);
+race.aiAbility = aiFactor(edits);
+race.shoeWearMultiplier = edits.shoeWear;
 race.setLaps(race.laps);
 // 馬場の荒れ度（ブロック単位）。レースをやり直すたびにきれいな芝に戻る
 const turfWear = new TurfWear(WORLD_BOUNDS);
@@ -156,14 +165,37 @@ const commentary = new Commentary();
 const resultScreen = new ResultScreen();
 const qualifyingScreen = new QualifyingScreen();
 const seriesScreen = new SeriesScreen();
+const editScreen = new EditScreen();
 const sfx = new Sfx();
+
+// 鳥瞰カメラ用の目印（チームカラーの丸。画面上で一定の大きさ）
+const markerTexture = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.arc(16, 16, 14, 0, Math.PI * 2);
+  g.fill();
+  return new THREE.CanvasTexture(c);
+})();
+const topMarkers = new Map(
+  race.horses.map((h) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerTexture, color: constructorOf(h.entry).color, depthTest: false, sizeAttenuation: false }));
+    s.renderOrder = 20;
+    s.visible = false;
+    scene.add(s);
+    return [h, s] as const;
+  }),
+);
 
 // --- Camera rig ---
 const rig = new CameraRig(camera, controls, track);
 rig.setFollowSource(() => horseModels.get(race.focus)!.cameraAnchor(race.focus, track, world.topAt));
 
 // --- 画面の状態（タイトル / シンプルレース / 観戦モード） ---
-type AppMode = 'title' | 'race' | 'spectate';
+/** preview = コース下見（レースは止めたまま、コースを自由に眺める） */
+type AppMode = 'title' | 'race' | 'spectate' | 'preview';
 let appMode: AppMode = 'title';
 /** タイトルで選んだモード（シンプルレースで落馬して観戦に切り替わっても、R で元に戻すため） */
 let chosenMode: 'race' | 'spectate' = 'race';
@@ -193,7 +225,8 @@ let cameraMode: CameraMode = 'orbit';
 
 const refreshLabels = () => {
   // コースラベルは俯瞰視点の時だけ出す（タイトル画面の背景では出さない）
-  labels.visible = labelsOn && appMode !== 'title' && (cameraMode === 'orbit' || cameraMode === 'transition');
+  // コースラベルはコース下見の俯瞰視点の時だけ出す
+  labels.visible = labelsOn && appMode === 'preview' && (cameraMode === 'orbit' || cameraMode === 'transition');
 };
 const toggleLabels = () => {
   labelsOn = !labelsOn;
@@ -241,7 +274,21 @@ const debugStartS = numParam('start');
 const applyModeUi = (mode: 'race' | 'spectate') => {
   appMode = mode;
   document.body.dataset.mode = mode;
-  rig.followStyles = mode === 'race' ? ['chase', 'jockey'] : ['chase', 'jockey', 'broadcast'];
+  rig.followEnabled = true;
+  // シンプルレース（自分で騎乗）は後方⇔騎手だけ。観戦モードは中継俯瞰・スタンド・鳥瞰も
+  rig.followStyles = mode === 'race' ? ['chase', 'jockey'] : ['chase', 'jockey', 'broadcast', 'stand', 'topdown'];
+};
+
+/** コース下見：レースは止めたまま、コースを自由に眺める（視点切替・プレビュー走行・ラベル） */
+const startCoursePreview = () => {
+  appMode = 'preview';
+  document.body.dataset.mode = 'preview';
+  rig.followEnabled = false;
+  controls.autoRotate = false;
+  race.configure(null);
+  startGate.reset();
+  rig.goTo('overview');
+  refreshLabels();
 };
 
 /** シンプルレースで自分の馬が落馬した：観戦カメラに切り替えて先頭の馬を追う */
@@ -733,7 +780,12 @@ seriesScreen.onBack = () => {
 seriesScreen.onTitle = showTitle;
 refreshSeriesButtons();
 
+// 設定（エディット）：保存したら読み込み直して出走表に反映
+onClick(document.getElementById('btn-edit')!, () => editScreen.show(edits));
+editScreen.onApply = () => reloadWithCourse(COURSE.id);
+
 // タイトル
+onClick(document.getElementById('btn-preview')!, startCoursePreview);
 onClick(document.getElementById('btn-race')!, () => startMode('race'));
 onClick(document.getElementById('btn-spectate')!, () => startMode('spectate'));
 document.querySelectorAll<HTMLButtonElement>('.to-title').forEach((b) => onClick(b, showTitle));
@@ -797,12 +849,13 @@ function neighbor(dir: 1 | -1): RaceHorse {
 
 const KEY_VIEWS: Record<string, ViewId> = { Digit1: 'overview', Digit2: 'hill', Digit3: 'pit', Digit4: 'finish' };
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyM' && appMode !== 'title') toggleSfx();
+  if (e.code === 'KeyM' && (appMode === 'race' || appMode === 'spectate')) toggleSfx();
   if (replay.active) {
     if (e.code === 'Escape') stopReplay(true);
     return;
   }
-  if (appMode === 'race') {
+  // 視点切替・プレビュー走行はコース下見だけ（レース中の自分の馬の視点は C キーの後方⇔騎手だけにする）
+  if (appMode === 'preview') {
     if (KEY_VIEWS[e.code]) rig.goTo(KEY_VIEWS[e.code]);
     else if (e.code === 'Digit5') togglePreview(false);
     else if (e.code === 'Digit6') togglePreview(true);
@@ -875,8 +928,17 @@ if (initialMode === 'race' || initialMode === 'spectate') {
       }
     }
   }
+} else if (initialMode === 'preview') {
+  showTitle();
+  startCoursePreview();
 } else {
   showTitle();
+  // 確認用：?edit=1 で設定（エディット）画面を開く（&tab=horses / teams でそのタブ）
+  if (params.get('edit')) {
+    editScreen.show(edits);
+    const tab = params.get('tab');
+    if (tab) document.querySelector<HTMLButtonElement>(`[data-edit-tab="${tab}"]`)?.click();
+  }
   // シリーズ戦で次のコースへ読み込み直した直後なら、そのままスタート
   let go = false;
   try {
@@ -938,7 +1000,8 @@ renderer.setAnimationLoop((time) => {
     return;
   }
 
-  if (appMode !== 'title') {
+  const racing = appMode === 'race' || appMode === 'spectate';
+  if (racing) {
     if (pressed.has('KeyC')) rig.toggleFollowStyle();
     // シリーズ戦ではやり直しできない
     if (pressed.has('KeyR') && !inSeries) restartRace();
@@ -968,7 +1031,7 @@ renderer.setAnimationLoop((time) => {
   // シンプルレースで落馬したら、倒れる様子を少し見せてから観戦カメラへ
   if (appMode === 'race' && race.player?.retired && race.time - race.player.retireTime > 2.5) watchAfterRetire();
 
-  if (appMode !== 'title') {
+  if (racing) {
     // --- 効果音 ---
     if (race.lightsOn > litBefore) sfx.lightOn();
     if (phaseBefore === 'countdown' && race.phase === 'running') sfx.gateOpen();
@@ -1002,7 +1065,17 @@ renderer.setAnimationLoop((time) => {
   safetyModel.root.visible = race.safety.visible;
   if (race.safety.visible) safetyModel.sync(race.safety, track, world.topAt, dt);
   startGate.update(dt, race);
-  if (appMode !== 'title') {
+  // 鳥瞰カメラの時だけ、馬の位置にチームカラーの目印を出す（真上からは馬が小さいので）
+  const topdown = racing && cameraMode === 'follow' && rig.followStyle === 'topdown';
+  for (const [h, marker] of topMarkers) {
+    marker.visible = topdown && !h.inPit && !(h.retired && h.fallen === 0);
+    if (marker.visible) {
+      const p = horseModels.get(h)!.root.position;
+      marker.position.set(p.x, p.y + 4, p.z);
+      marker.scale.setScalar(h === race.focus ? 0.03 : 0.018);
+    }
+  }
+  if (racing) {
     hud.update(race);
     standings.update(dt, race);
     minimap.update(race);
@@ -1020,7 +1093,7 @@ renderer.setAnimationLoop((time) => {
   lights.follow(controls.target); // 影はカメラが見ている所のまわりに描く
   world.turf.sync(turfWear); // 荒れたマスの芝の色を更新
   // 注目している馬がスリップストリーム中なら、画面の縁に風切りエフェクト（追従・騎手視点の時）
-  const slipFx = appMode !== 'title' && cameraMode === 'follow' && rig.followStyle !== 'broadcast' && race.focus.slipstream > 0.5;
+  const slipFx = racing && cameraMode === 'follow' && rig.followStyle !== 'broadcast' && race.focus.slipstream > 0.5;
   document.body.classList.toggle('slipstream', slipFx);
   renderer.render(scene, camera);
   hideBootCover();

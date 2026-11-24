@@ -1,7 +1,7 @@
 /**
  * タイトル画面で選ぶレース設定（コース・周回数・予選の有無）。ブラウザに保存して次回も使う。
  */
-export type LapsOption = 5 | 20;
+export type LapsOption = 5 | 10 | 20;
 
 export type WeatherOption = 'sunny' | 'rain' | 'random';
 
@@ -25,7 +25,7 @@ export function loadSettings(): RaceSettings {
     const v = JSON.parse(raw) as Partial<RaceSettings>;
     return {
       course: typeof v.course === 'string' ? v.course : DEFAULTS.course,
-      laps: v.laps === 20 ? 20 : 5,
+      laps: v.laps === 20 ? 20 : v.laps === 10 ? 10 : 5,
       qualifying: v.qualifying === true,
       weather: v.weather === 'rain' || v.weather === 'random' ? v.weather : 'sunny',
       fieldSize: v.fieldSize === 16 ? 16 : 12,

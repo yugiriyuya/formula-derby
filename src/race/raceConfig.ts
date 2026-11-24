@@ -212,7 +212,8 @@ export function raceFormat(laps: number): RaceFormat {
   if (laps <= 6) return { shoeWear: 1, turfWear: 1, stamina: 1, maxStops: 1, twoStopChance: 0 };
   const k = 5 / laps;
   return {
-    shoeWear: Math.min(1, 10 / laps), // 20 周で 0.5
+    // 10 周で 0.7（ソフト約 4.5 周・ハード約 12 周）、20 周で 0.5
+    shoeWear: laps >= 12 ? Math.min(1, 10 / laps) : 0.7,
     turfWear: Math.max(0.25, k * 1.15),
     stamina: Math.max(0.3, Math.sqrt(k) * 0.75),
     maxStops: laps >= 12 ? 2 : 1,

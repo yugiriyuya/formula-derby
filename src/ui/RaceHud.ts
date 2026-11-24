@@ -178,9 +178,11 @@ export class RaceHud {
       sub = `タイム ${formatTime(race.correctedTime(h)!)}${pen} ・ ベスト ${formatOpt(race.bestLapTime)} ・ R でリスタート`;
     } else {
       big = race.activeMessage ?? '';
-      if (h.pitPhase === 'stopped' && h.isServingStopGo) sub = `STOP & GO 停止中  ${Math.max(0, h.pitTimer).toFixed(1)}s`;
-      else if (h.pitPhase === 'stopped') sub = `蹄鉄交換中 ${h.shoe} → ${h.nextShoe}  ${Math.max(0, h.pitTimer).toFixed(1)}s`;
+      if (h.pitPhase === 'stopped' && h.servingPenalty > 0) {
+        sub = `ペナルティ消化中（${h.isServingStopGo ? 'STOP & GO ' : ''}+${h.servingPenalty}s）＋蹄鉄交換 ${h.shoe} → ${h.nextShoe}  残り ${Math.max(0, h.pitTimer).toFixed(1)}s`;
+      } else if (h.pitPhase === 'stopped') sub = `蹄鉄交換中 ${h.shoe} → ${h.nextShoe}  ${Math.max(0, h.pitTimer).toFixed(1)}s`;
       else if (h.stopGoPending && h.pitPhase === 'none') sub = `STOP & GO — 次のピットインでボックスに ${RACE_CONFIG.stopGoSeconds} 秒停止`;
+      else if (h.penaltySeconds > 0 && h.pitPhase === 'approach') sub = `ピットイン — ペナルティ +${h.penaltySeconds}s をピットで消化します`;
       else if (h.pitPhase === 'lane') sub = `ピットレーン 速度制限 ${Math.round(RACE_CONFIG.pitSpeedLimit * 3.6)}km/h`;
       else if (h.pitPhase === 'approach') sub = 'ピットイン準備 — 内側へ寄せます';
       else if (h.whipsThisLap === RACE_CONFIG.whipPenaltyCount - 1) sub = `ムチ ${h.whipsThisLap} 回 — この周は次からペナルティ +${RACE_CONFIG.whipPenaltySeconds}s`;

@@ -123,6 +123,8 @@ export class RaceHorse {
   /** 周回数に合わせた調整（20 周では蹄鉄の摩耗・スタミナの消耗を緩める）。Race.setLaps で設定 */
   shoeWearScale = 1;
   staminaScale = 1;
+  /** 能力の倍率（設定の「AI の強さ」。AI が走らせる馬だけ 1 以外になる） */
+  abilityFactor = 1;
   /** 進行方向の風速（m/s。追い風が +、向かい風が -）。Race が毎フレーム設定する */
   windAlong = 0;
   /** スタート時に履く蹄鉄（AI の作戦で決める。null なら出走表のとおり） */
@@ -136,6 +138,13 @@ export class RaceHorse {
   onPenalty?: (horse: RaceHorse, seconds: number, reason: string) => void;
   /** STOP & GO を消化した時に呼ばれる */
   onStopGoServed?: (horse: RaceHorse) => void;
+
+  /** ピットで消化中のペナルティ（秒。停止時間に上乗せしている分） */
+  servingPenalty = 0;
+  /** ピットで消化したペナルティの合計（秒。ゴールタイムには加算しない） */
+  penaltyServed = 0;
+  /** ピットでタイムペナルティを消化した時に呼ばれる */
+  onPenaltyServed?: (horse: RaceHorse, seconds: number) => void;
 
   /** STOP & GO でピットボックスに停止中 */
   get isServingStopGo(): boolean {
@@ -210,6 +219,8 @@ export class RaceHorse {
     this.startBoost = 0;
     this.startResult = null;
     this.penaltySeconds = 0;
+    this.penaltyServed = 0;
+    this.servingPenalty = 0;
     this.groundWear = 0;
     this.lastWearCell = -1;
     this.slipstreamTarget = false;
@@ -334,6 +345,7 @@ export class RaceHorse {
   topSpeed(condition: TrackCondition): number {
     const st = this.entry.horse.stats;
     let top = C.topSpeedBase + st.speed * C.topSpeedPerStat;
+    top *= this.abilityFactor;
     top *= HORSESHOES[this.shoe].grip[condition] * (1 - MAX_WEAR_PENALTY * this.shoeWear);
     if (this.stamina < C.staminaTiredThreshold) {
       top *= 1 - C.staminaTiredPenalty * (1 - this.stamina / C.staminaTiredThreshold);
@@ -398,15 +410,19 @@ export class RaceHorse {
       this.speed = 0;
       this.stamina = Math.min(100, this.stamina + C.pitStaminaRecover * dt);
       this.pitTimer -= dt;
-      if (this.pitTimer <= 0 && this.servingStopGo) {
-        // STOP & GO 消化：作業はせず（蹄鉄はそのまま）発進
-        this.servingStopGo = false;
-        this.stopGoPending = false;
-        this.serviced = true;
-        this.pitRequested = false;
-        this.pitPhase = 'lane';
-        this.onStopGoServed?.(this);
-      } else if (this.pitTimer <= 0) {
+      if (this.pitTimer <= 0) {
+        // ペナルティ消化の完了（タイムペナルティは消化済みへ移す）
+        if (this.servingPenalty > 0) {
+          const timePart = this.penaltySeconds;
+          this.penaltySeconds = 0;
+          this.penaltyServed += timePart + (this.servingStopGo ? C.stopGoSeconds : 0);
+          this.servingPenalty = 0;
+          if (this.servingStopGo) {
+            this.servingStopGo = false;
+            this.stopGoPending = false;
+            this.onStopGoServed?.(this);
+          } else this.onPenaltyServed?.(this, timePart);
+        }
         const from = this.shoe;
         this.shoe = this.nextShoe;
         this.shoeWear = 0;
@@ -559,11 +575,13 @@ export class RaceHorse {
       this.s = stopS;
       this.speed = 0;
       this.pitPhase = 'stopped';
-      // STOP & GO なら作業なしで決められた時間だけ停止。それ以外は蹄鉄交換
+      // ピットでペナルティを消化：抱えているタイムペナルティ（秒）と STOP & GO（stopGoSeconds）の分だけ
+      // 停止時間を延ばし、その後で蹄鉄を交換して出ていく。消化した分はゴールタイムに加算されない
       this.servingStopGo = this.stopGoPending;
+      this.servingPenalty = this.penaltySeconds + (this.stopGoPending ? C.stopGoSeconds : 0);
       // 作業時間はコンストラクターのピットクルーの腕（と騎手の戦略値を少し）で決まる
       const work = C.pitWorkBase - constructorOf(this.entry).pitCrew * C.pitCrewPerPoint - this.entry.jockey.strategy * C.pitWorkPerStat;
-      this.pitTimer = this.servingStopGo ? C.stopGoSeconds : work;
+      this.pitTimer = work + this.servingPenalty;
     }
   }
 }

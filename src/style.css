@@ -342,6 +342,17 @@ body[data-mode='spectate'] #standings tbody tr:hover td {
 }
 
 /* ---------- 画面ごとの表示切替 ---------- */
+body[data-mode='race'] #hud .preview-only,
+body[data-mode='preview'] #hud .race-only,
+body[data-mode='preview'] #spectator-panel,
+body[data-mode='preview'] #left-panel,
+body[data-mode='preview'] #race-hud,
+body[data-mode='preview'] #center-msg,
+body[data-mode='preview'] #start-lights,
+body[data-mode='preview'] #commentary,
+body[data-mode='preview'] #penalty-toast,
+body[data-mode='preview'] #flag-banner,
+body[data-mode='preview'] #slip-overlay,
 body[data-mode='race'] #spectator-panel,
 body[data-mode='spectate'] #hud,
 body[data-mode='title'] #left-panel,
@@ -398,6 +409,11 @@ body:not([data-mode='title']) #title-screen {
   border: 3px solid #6fd17d;
   border-radius: 0;
   cursor: pointer;
+}
+#title-screen .menu button#btn-preview {
+  width: 170px;
+  background: #4a4f58;
+  border-color: #9aa0a8;
 }
 #title-screen .menu button#btn-spectate {
   background: #2b4f8a;
@@ -551,7 +567,8 @@ body.q-shown #center-msg {
   color: #ffd23a;
 }
 #qualifying-screen .q-note,
-#series-screen .q-note {
+#series-screen .q-note,
+#result-screen .q-note {
   margin: 10px 0 0;
   font-size: 11px;
   color: #999;
@@ -1396,4 +1413,130 @@ body.series-shown #result-screen {
 #series-champion span {
   font-size: 12px;
   color: #ddd;
+}
+
+/* リザルト：獲得ポイント */
+#result-table th.pts,
+#result-table td.pts {
+  color: #ffd23a;
+}
+#result-table td.pts small {
+  color: #c8b46a;
+}
+
+/* ---------- 設定（エディット） ---------- */
+#title-screen .title-links {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  text-align: left;
+}
+#title-screen .title-links button {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: #3b3f47;
+  border: 2px solid #8a9099;
+  border-radius: 0;
+  cursor: pointer;
+}
+#title-screen .title-links small {
+  font-size: 11px;
+  color: #aaa;
+}
+#edit-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+#edit-screen.show {
+  display: flex;
+}
+#edit-screen .result-box {
+  max-height: calc(100vh - 30px);
+  overflow-y: auto;
+}
+.edit-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.edit-tabs button {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: #ccc;
+  background: #2a2f38;
+  border: 2px solid #555;
+  border-radius: 0;
+  cursor: pointer;
+}
+.edit-tabs button.active {
+  color: #fff;
+  background: #6b4a12;
+  border-color: #ffd23a;
+}
+#edit-body {
+  min-width: 640px;
+  font-size: 13px;
+}
+#edit-body .edit-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+#edit-body .edit-row .k {
+  width: 90px;
+  color: #bbb;
+}
+#edit-body .opts-inline {
+  display: flex;
+  gap: 14px;
+}
+#edit-body small,
+#edit-body .edit-note {
+  font-size: 11px;
+  color: #999;
+}
+.edit-table {
+  border-collapse: collapse;
+}
+.edit-table th {
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa;
+  text-align: left;
+}
+.edit-table td {
+  padding: 2px 6px;
+}
+.edit-table input,
+.edit-table select {
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: #1c2027;
+  border: 1px solid #555;
+}
+.edit-table input[type='text'] {
+  width: 150px;
+}
+.edit-table input[type='number'] {
+  width: 46px;
+}
+.edit-table .sw {
+  display: inline-block;
+  width: 8px;
+  height: 12px;
+  margin-left: 4px;
+  vertical-align: middle;
 }

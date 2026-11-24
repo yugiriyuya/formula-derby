@@ -7,12 +7,15 @@ export type ViewId = 'overview' | 'hill' | 'pit' | 'finish';
 /** manual = カメラを外から直接動かす（ゴール前リプレイの中継カメラなど）。リグは何もしない */
 export type CameraMode = 'orbit' | 'transition' | 'preview' | 'follow' | 'manual';
 /** chase = 後方視点（三人称）, jockey = 騎手視点（一人称）, broadcast = 中継俯瞰視点 */
-export type FollowStyle = 'chase' | 'jockey' | 'broadcast';
+/** stand = スタンドからの観戦（固定位置から馬を追ってズーム）, topdown = コース全体を真上から見下ろす鳥瞰 */
+export type FollowStyle = 'chase' | 'jockey' | 'broadcast' | 'stand' | 'topdown';
 
 export const FOLLOW_STYLE_LABEL: Record<FollowStyle, string> = {
   chase: '後方視点',
   jockey: '騎手視点',
   broadcast: '中継俯瞰',
+  stand: 'スタンド',
+  topdown: '鳥瞰',
 };
 
 /** 追従対象の情報 */
@@ -113,6 +116,8 @@ export class CameraRig {
   private readonly broadcastPos = new THREE.Vector3();
   private readonly broadcastLook = new THREE.Vector3();
   followStyle: FollowStyle = 'chase';
+  /** false の間（コース下見）はプレビューを終えても追従に戻らず全景へ */
+  followEnabled = true;
   /** C キーで切り替える視点の順番（シンプルレースは後方⇔騎手、観戦モードは中継俯瞰も） */
   followStyles: FollowStyle[] = ['chase', 'jockey'];
 
@@ -139,6 +144,8 @@ export class CameraRig {
 
   private setMode(mode: CameraMode, viaPit = false) {
     this._mode = mode;
+    // 鳥瞰は上方向を変えているので、ほかのモードでは元に戻す
+    if (mode !== 'follow') this.camera.up.set(0, 1, 0);
     // 自分で動かすモード（プレビュー・追従）の間はマウス操作を止める
     this.controls.enabled = mode === 'orbit' || mode === 'transition';
     this.onModeChange?.(mode, viaPit);
@@ -171,7 +178,7 @@ export class CameraRig {
   /** プレビューを終えて、レース追従（なければ全景）に戻る */
   stopPreview() {
     if (this._mode !== 'preview') return;
-    if (this.followSource) this.follow();
+    if (this.followSource && this.followEnabled) this.follow();
     else this.goTo('overview');
   }
 
@@ -269,8 +276,56 @@ export class CameraRig {
     this.updateFov(dt, targetFov);
   }
 
+  /** スタンド最上段あたり（ゴール板の少し手前・外側の高い所）の位置 */
+  private standEye(): THREE.Vector3 {
+    const def = this.track.def;
+    const mpb = def.metersPerBlock;
+    const st = def.stands;
+    const p = this.track.frameAt(st.centerS, -(st.offset + 18 / mpb)).position;
+    p.y = this.track.elevationAt(st.centerS) + 34 / mpb;
+    return p;
+  }
+
   /** 追従カメラを動かし、その時の目標視野角を返す */
   private updateFollow(dt: number, a: FollowAnchor): number {
+    if (this.followStyle !== 'topdown') this.camera.up.set(0, 1, 0);
+    if (this.followStyle === 'stand') {
+      // スタンドから：位置は固定、注目している馬を首を振って追い、遠い時はズームで寄る
+      const eye = this.standEye();
+      const target = a.position.clone().setY(a.position.y + 1.2);
+      if (this.followFresh) this.followLook.copy(target);
+      else this.followLook.lerp(target, 1 - Math.exp(-dt * 5));
+      this.camera.position.copy(eye);
+      this.camera.lookAt(this.followLook);
+      this.controls.target.copy(this.followLook);
+      this.followFresh = false;
+      this.enterBlend = 1;
+      const dist = eye.distanceTo(this.followLook);
+      // 画面の縦に約 24m（馬群）が入る視野角。遠いほど狭く（ズーム）
+      return THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(10 / dist)), 6, 55);
+    }
+    if (this.followStyle === 'topdown') {
+      // 鳥瞰：コース全体の真上から真下を見る（北が画面の上）
+      const ext = this.track.extent();
+      const cx = (ext.minX + ext.maxX) / 2;
+      const cz = (ext.minZ + ext.maxZ) / 2;
+      const span = Math.max(ext.maxX - ext.minX, (ext.maxZ - ext.minZ) * this.camera.aspect) + this.track.def.trackWidth * 2;
+      const fov = 40;
+      const height = (span / this.camera.aspect / 2 / Math.tan(THREE.MathUtils.degToRad(fov / 2))) * 1.22;
+      // 視野角はなめらかに変えず、すぐに合わせる（コース全体がぴったり収まるように）
+      if (this.camera.fov !== fov) {
+        this.camera.fov = fov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.camera.up.set(0, 0, -1);
+      this.camera.position.set(cx, height, cz + 0.01);
+      this.followLook.set(cx, 0, cz);
+      this.camera.lookAt(this.followLook);
+      this.controls.target.copy(this.followLook);
+      this.followFresh = false;
+      this.enterBlend = 1;
+      return fov;
+    }
     const kmh = a.speed * 3.6;
     const speedRatio = smoothstep(clamp01((kmh - FOV_START_KMH) / (FOV_FULL_KMH - FOV_START_KMH)));
     const bob = Math.sin(a.gallopPhase * 2) * speedRatio;

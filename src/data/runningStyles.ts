@@ -26,6 +26,7 @@ export interface RunningStyleSpec {
 export const RUNNING_STYLES: Record<RunningStyle, RunningStyleSpec> = {
   nige: { label: '逃げ', front: true, highPaceDrain: 0.8, cruiseDrain: 0.92, whipPower: 0.85, aiPosition: 15, aiSpurt: 650, aiExtraReserve: 0 },
   senko: { label: '先行', front: true, highPaceDrain: 0.87, cruiseDrain: 0.96, whipPower: 0.95, aiPosition: 10, aiSpurt: 700, aiExtraReserve: 0 },
-  sashi: { label: '差し', front: false, highPaceDrain: 1.1, cruiseDrain: 1.12, whipPower: 1.3, aiPosition: -8, aiSpurt: 850, aiExtraReserve: 6 },
-  oikomi: { label: '追込', front: false, highPaceDrain: 1.2, cruiseDrain: 1.2, whipPower: 1.45, aiPosition: -20, aiSpurt: 950, aiExtraReserve: 10 },
+  // 差し・追込：道中は後ろで脚をためる（巡航の消耗は控えめ）。ハイペースで動くと消耗が大きい。最後の直線用に多めに温存
+  sashi: { label: '差し', front: false, highPaceDrain: 1.1, cruiseDrain: 1.0, whipPower: 1.3, aiPosition: -8, aiSpurt: 850, aiExtraReserve: 10 },
+  oikomi: { label: '追込', front: false, highPaceDrain: 1.2, cruiseDrain: 0.94, whipPower: 1.45, aiPosition: -20, aiSpurt: 950, aiExtraReserve: 16 },
 };

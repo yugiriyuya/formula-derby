@@ -4,6 +4,11 @@ import { PACE_LEVELS, RACE_CONFIG as C, type PaceLevel, type RaceFormat } from '
 import type { HorseControls, RaceHorse } from './RaceHorse';
 import type { SafetyHorse } from './SafetyHorse';
 
+/** 最後の直線の何 m 手前から仕掛けるか（脚質ごと。差し・追込は 4 コーナーの出口あたりから動く） */
+export const SPURT_LEAD_M: Record<string, number> = { nige: 20, senko: 40, sashi: 90, oikomi: 130 };
+/** ムチとムチの最短の間隔（秒）。同じ所で連打しない */
+const WHIP_MIN_GAP = 1.8;
+
 /** 追い比べ：この距離（m）以内の前・横にライバルがいたら競りかける */
 const DUEL_RANGE_M = 10;
 
@@ -58,6 +63,8 @@ export class AIController {
   /** 荒れを避けて選んだ今のライン（ブロック）と、選び直すまでの時間 */
   private cleanLine = 0;
   private lineTimer = 0;
+  /** 前のムチからの秒数（同じ所で連打しない） */
+  private sinceWhip = 99;
   /** 逆向きのカーブへの切り返し中（秒）。この間は横移動を速くする */
   private switchTimer = 0;
   /** 1 周に叩くムチの上限（ふつうは 4 = ペナルティの手前。攻めすぎる騎手は 5〜6） */
@@ -123,7 +130,8 @@ export class AIController {
   plan(laps: number, rand: () => number, teammatePitLaps: readonly number[], format?: RaceFormat, condition: TrackCondition = 'good') {
     const half = this.horse.track.def.trackWidth / 2;
     const strategy = this.horse.entry.jockey.strategy;
-    if (format && format.maxStops >= 2) {
+    // 10 周以上は作戦（スティントごとの蹄鉄）を決めて走る。10 周は 1 ストップだけ、20 周は 1 / 2 ストップ
+    if (format && laps > 6) {
       this.planLongRace(laps, rand, teammatePitLaps, format);
     } else {
       // 1 回ピットの周：レースの中盤。僚馬とは同じ周に入らない（ピットボックスが空くように）
@@ -155,6 +163,7 @@ export class AIController {
     this.whipLimit = rand() < overWhipChance ? C.whipPenaltyCount + (rand() < 0.3 ? 1 : 0) : C.whipPenaltyCount - 1;
     this.targetLateral = this.horse.lateral;
     this.whipTimer = 0;
+    this.sinceWhip = 99;
     this.cleanLine = this.preferredLateral;
     this.lineTimer = 0;
   }
@@ -222,8 +231,14 @@ export class AIController {
     const top = h.topSpeed(ctx.condition);
     const style = h.style;
     const remainingM = (ctx.laps * track.length - h.progress) * mpb;
-    // スパートを始める距離は脚質で変わる（差し・追込ほど早めに仕掛ける）
-    const finalSpurt = remainingM < style.aiSpurt;
+    // スパート（仕掛け）：脚質ごとの距離（差し・追込ほど早め）から。ただしコーナーの途中から仕掛けると
+    // 最後の直線で脚が上がるので、仕掛けるのは「最後の直線＋脚質ごとの少し手前（4コーナー出口あたり）」まで待つ。
+    // それより前の勝負どころでは、ペースを上げすぎずに位置を取りにいく（positioning）
+    const lastSeg = def.segments[def.segments.length - 1];
+    const homeM = (lastSeg.type === 'straight' ? lastSeg.length : 0) * mpb;
+    const spurtFrom = Math.min(style.aiSpurt, homeM + SPURT_LEAD_M[h.entry.horse.style]);
+    const finalSpurt = remainingM < spurtFrom;
+    const positioning = !finalSpurt && remainingM < style.aiSpurt;
     // ペースはプレイヤーと同じ 3 段階（スタミナの減り方もペースで変わる）
     let pace: PaceLevel;
     let ratio: number;
@@ -233,6 +248,10 @@ export class AIController {
     } else if (finalSpurt) {
       pace = 'high';
       ratio = h.stamina > 8 ? 1.05 : 0.97;
+    } else if (positioning) {
+      // 勝負どころ（3〜4 コーナー）：標準より少しだけ速く、位置を上げながら脚をためる
+      pace = 'normal';
+      ratio = PACE_LEVELS.normal.ratio + (style.front ? 0.015 : 0.03);
     } else {
       // 最後の直線のムチ用のスタミナ（aiStaminaReserve＋脚質ごとの上乗せ）は温存し、残りを残り周回に割り振る。
       // 1 周あたりの予算：ハイペースは約 23、標準は約 11 消耗する
@@ -372,6 +391,7 @@ export class AIController {
   private decideWhip(dt: number, ctx: AIContext, finalSpurt: boolean): boolean {
     const h = this.horse;
     this.whipTimer -= dt;
+    this.sinceWhip += dt;
     if (h.finished || ctx.safety.restricting || h.pitPhase !== 'none' || h.whipsThisLap >= this.whipLimit || this.whipTimer > 0) {
       return false;
     }
@@ -396,11 +416,25 @@ export class AIController {
     });
 
     let whip = false;
-    if (finalLap && inHomeStretch && h.stamina > 4 && ready) whip = true;
-    else if (inHomeStretch && rival && h.stamina > 45 && h.whipsThisLap < 2 && ready) whip = Math.random() < dt * (0.3 + strategy * 0.05);
-    else if (finalSpurt && h.stamina > 20 && ready) whip = Math.random() < dt * 0.35;
+    if (finalLap && inHomeStretch && h.stamina > 4 && ready) {
+      // 最後の直線：残りのムチ（この周の上限まで）をゴールまでの時間に割り振って、間隔を空けて叩く。
+      // 直線に入った瞬間に全部使い切らず、ゴール前まで伸びを続かせる
+      const left = this.whipLimit - h.whipsThisLap;
+      const secondsToLine = (toLine * mpb) / Math.max(8, h.speed);
+      const gap = Math.max(WHIP_MIN_GAP, secondsToLine / (left + 0.4));
+      whip = this.sinceWhip >= gap;
+    } else if (inHomeStretch && rival && h.stamina > 45 && h.whipsThisLap < 2 && ready && this.sinceWhip > 4) {
+      whip = Math.random() < dt * (0.3 + strategy * 0.05);
+    } else if (finalSpurt && !inHomeStretch && h.stamina > 20 && ready && this.sinceWhip > 6) {
+      // 4 コーナー出口の仕掛け：直線の前に 1 発だけ（コーナーの途中では連打しない）
+      const toStraightM = (toLine - homeLength) * mpb;
+      whip = toStraightM < 40 && h.whipsThisLap === 0 && Math.random() < dt * 1.5;
+    }
 
-    if (whip) this.whipTimer = 1.2 + (10 - strategy) * 0.08;
+    if (whip) {
+      this.whipTimer = 1.2 + (10 - strategy) * 0.08;
+      this.sinceWhip = 0;
+    }
     return whip;
   }
 }

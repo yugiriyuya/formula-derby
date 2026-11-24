@@ -66,6 +66,8 @@ export interface RaceResultRow {
   /** ペナルティ込みのタイム（秒）。ゴール前・落馬は null */
   time: number | null;
   penaltySeconds: number;
+  /** ピットで消化したペナルティ（秒。タイムには含まない） */
+  penaltyServed: number;
   /** ファステストラップ（秒）と何周目か。レース全体の最速なら isFastestLap */
   fastestLap: number | null;
   fastestLapNumber: number | null;
@@ -164,6 +166,9 @@ export class Race {
   gridOrder: RaceHorse[] | null = null;
   /** 出走しているコンストラクター（並び = ピットボックスの並び） */
   readonly teams: ConstructorData[];
+  /** 設定（エディット）：AI が走らせる馬の能力の倍率と、蹄鉄の摩耗の倍率 */
+  aiAbility = 1;
+  shoeWearMultiplier = 1;
   /** 予選のタイムアタック用：AI はピットに入らない */
   noPitStops = false;
 
@@ -188,6 +193,9 @@ export class Race {
       };
       h.onPenalty = (horse, seconds, reason) =>
         this.report(horse, `PENALTY +${seconds}s: ${reason} — ${horse.postNumber}番 ${horse.entry.horse.name}`);
+      h.onPenaltyServed = (horse, seconds) => {
+        if (horse === this.focus) this.notify(`ペナルティ +${seconds}s をピットで消化`, 2.5);
+      };
       h.onStopGoServed = (horse) => {
         if (horse === this.focus) this.notify('STOP & GO 消化', 2.5);
       };
@@ -233,7 +241,7 @@ export class Race {
     this.laps = laps;
     this.format = raceFormat(laps);
     for (const h of this.horses) {
-      h.shoeWearScale = this.format.shoeWear;
+      h.shoeWearScale = this.format.shoeWear * this.shoeWearMultiplier;
       h.staminaScale = this.format.stamina;
     }
   }
@@ -286,8 +294,10 @@ export class Race {
     const order = this.gridOrder && this.gridOrder.length === this.horses.length ? [...this.gridOrder] : shuffle([...this.horses], Math.random);
     for (const h of this.horses) {
       h.startShoeOverride = null;
-      h.shoeWearScale = this.format.shoeWear;
+      h.shoeWearScale = this.format.shoeWear * this.shoeWearMultiplier;
       h.staminaScale = this.format.stamina;
+      // 設定の「AI の強さ」：自分の馬以外（観戦モードでは全頭）
+      h.abilityFactor = h === this.player ? 1 : this.aiAbility;
     }
     order.forEach((h, i) => {
       const slot = this.gate[i];
@@ -574,6 +584,7 @@ export class Race {
         popularity: h.popularity,
         time: this.correctedTime(h),
         penaltySeconds: h.penaltySeconds,
+        penaltyServed: h.penaltyServed,
         fastestLap: fl?.time ?? null,
         fastestLapNumber: fl?.lap ?? null,
         isFastestLap: h === fastest,

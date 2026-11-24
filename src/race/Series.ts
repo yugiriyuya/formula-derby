@@ -1,17 +1,17 @@
 import { COURSES } from '../course/courses';
 import { fieldEntries, teamsOf } from '../data/roster';
+import { racePoints } from './points';
 import type { Race, Weather } from './Race';
 
-/** 着順ごとのポイント（1〜10 着）と、ファステストラップの追加点（10 着以内でゴールした馬だけ） */
-export const SERIES_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
-export const FASTEST_LAP_BONUS = 1;
-
+/** ポイントの付け方は points.ts（F1 方式：25-18-15-12-10-8-6-4-2-1、ファステストラップ +1、オーバーテイク最多 +1） */
 export interface SeriesResult {
   entryId: string;
   /** 着順（落馬は null） */
   position: number | null;
   points: number;
   fastestLap: boolean;
+  /** オーバーテイク数最多の +1（古い保存データにはない） */
+  mostOvertakes?: boolean;
 }
 
 export interface SeriesRound {
@@ -109,13 +109,16 @@ export function isFinished(s: SeriesState): boolean {
 export function recordRound(s: SeriesState, race: Race): boolean {
   const round = s.rounds[s.round];
   if (!round || round.results) return false;
-  const fastest = race.fastestLapHolder();
+  const pts = racePoints(race);
   round.results = race.horses.map((h) => {
-    const position = h.retired ? null : h.finishPosition;
-    let points = position !== null && position <= SERIES_POINTS.length ? SERIES_POINTS[position - 1] : 0;
-    const fl = h === fastest;
-    if (fl && position !== null && position <= 10) points += FASTEST_LAP_BONUS;
-    return { entryId: h.entry.id, position, points, fastestLap: fl };
+    const p = pts.get(h)!;
+    return {
+      entryId: h.entry.id,
+      position: h.retired ? null : h.finishPosition,
+      points: p.total,
+      fastestLap: p.fastestLap,
+      mostOvertakes: p.mostOvertakes,
+    };
   });
   return true;
 }

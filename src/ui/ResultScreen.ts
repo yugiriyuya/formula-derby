@@ -2,6 +2,7 @@ import { bracketColor, bracketOf } from '../data/brackets';
 import { CONSTRUCTORS } from '../data/roster';
 import type { Race, RaceResultRow } from '../race/Race';
 import { marginText } from './Commentary';
+import { pointsBreakdown, racePoints, type RacePoints } from '../race/points';
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
@@ -80,8 +81,11 @@ export class ResultScreen {
     // --- 成績一覧 ---
     const head = `<tr>
       <th>着</th><th>枠</th><th>番</th><th class="l">馬名 / 騎手</th><th class="l">コンストラクター</th>
-      <th>タイム</th><th>着差</th><th>オッズ</th><th>ファステストラップ</th><th>追抜</th><th>ペナ</th><th>ピット</th></tr>`;
-    const body = rows.map((r) => this.row(r, n, topTime)).join('');
+      <th>タイム</th><th>着差</th><th>オッズ</th><th>ファステストラップ</th><th>追抜</th><th>ペナ</th><th>ピット</th><th class="pts">獲得pt</th></tr>`;
+    // F1 方式のポイント（着順 + ファステストラップ +1 + オーバーテイク最多 +1）
+    const pts = racePoints(race);
+    const ptsOf = (post: number) => pts.get(race.horses.find((h) => h.postNumber === post)!)!;
+    const body = rows.map((r) => this.row(r, n, topTime, race.phase === 'finished' ? ptsOf(r.postNumber) : null)).join('');
     this.table.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 
     this.replayBtn.disabled = !race.replay.available;
@@ -89,7 +93,7 @@ export class ResultScreen {
     this.el.classList.add('show');
   }
 
-  private row(r: RaceResultRow, fieldSize: number, topTime: number | null): string {
+  private row(r: RaceResultRow, fieldSize: number, topTime: number | null, p: RacePoints | null): string {
     const team = CONSTRUCTORS.find((c) => c.id === r.constructorId)!;
     const bracket = bracketColor(r.postNumber, fieldSize);
     const pos = r.status === 'DNF' ? '<span class="dnf">DNF</span>' : r.status === 'RUNNING' ? `(${r.position})` : String(r.position);
@@ -114,8 +118,11 @@ export class ResultScreen {
       <td class="t">${r.odds.toFixed(1)}<br><small>${r.popularity}人気</small></td>
       <td class="t ${r.isFastestLap ? 'fastest' : ''}">${fl}</td>
       <td class="t">${r.overtakes}</td>
-      <td class="t ${r.penaltySeconds > 0 ? 'pen' : ''}">${r.penaltySeconds > 0 ? `+${r.penaltySeconds}s` : '—'}</td>
+      <td class="t ${r.penaltySeconds > 0 ? 'pen' : ''}">${r.penaltySeconds > 0 ? `+${r.penaltySeconds}s` : '—'}${
+        r.penaltyServed > 0 ? `<br><small>ピット消化 ${r.penaltyServed}s</small>` : ''
+      }</td>
       <td class="t">${r.pitStops}</td>
+      <td class="t pts">${p && p.total > 0 ? `<b>${p.total}</b>${p.fastestLap || p.mostOvertakes ? `<br><small>${pointsBreakdown(p)}</small>` : ''}` : '—'}</td>
     </tr>`;
   }
 }
