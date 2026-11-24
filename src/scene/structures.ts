@@ -96,6 +96,7 @@ function buildGarages(track: CourseTrack, topAt: TopAt): THREE.Group {
 function buildFinishPost(track: CourseTrack, topAt: TopAt): THREE.Group {
   const frame = track.frameAt(track.def.finishS, -(track.railLateral + 1));
   const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z));
+  g.name = 'finish-post'; // ゴール前リプレイ（写真判定カメラ）では視線を遮るので隠す
   const pole = box(0.3, 6, 0.3, lambert(0xffffff));
   pole.position.y = 3;
   g.add(pole);

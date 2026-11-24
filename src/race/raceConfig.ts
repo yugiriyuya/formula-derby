@@ -159,6 +159,14 @@ export const RACE_CONFIG = {
   // --- 演出 ---
   /** 走りのアニメーション：1m 進むごとの脚の位相（完歩 約 7m） */
   gallopPhasePerMeter: 0.9,
+
+  // --- 実況 ---
+  /** 実況の 1 馬身（m） */
+  horseLengthMeters: 2.4,
+  /** 先頭が 2 番手をこれだけ（m）離したら「大逃げ」 */
+  breakawayGapMeters: 20,
+  /** 最後方がすぐ前の馬からこれだけ（m）離されたら「離された追走」 */
+  tailOffGapMeters: 18,
 };
 
 /** ペース（巡航速度とスタミナの使い方）。プレイヤーは W / S で切り替え、AI も同じ段階で走る */

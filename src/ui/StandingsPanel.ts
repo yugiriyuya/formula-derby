@@ -92,7 +92,7 @@ export class StandingsPanel {
       r.tr.classList.toggle('pitting', h.inPit);
       r.tr.classList.toggle('finished', h.finishPosition !== null);
       r.tr.classList.toggle('retired', h.retired);
-      r.pos.textContent = h.retired ? 'OUT' : h.finishPosition !== null ? `${h.finishPosition}着` : String(i + 1);
+      r.pos.textContent = h.retired ? 'DNF' : h.finishPosition !== null ? `${h.finishPosition}着` : String(i + 1);
       const badge = bracketColor(h.postNumber, race.horses.length);
       r.post.textContent = String(h.postNumber);
       r.post.style.background = badge.bg;

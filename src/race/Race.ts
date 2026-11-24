@@ -5,7 +5,8 @@ import { AIController, type AIContext } from './AIController';
 import type { TurfWear } from './TurfWear';
 import { RACE_CONFIG } from './raceConfig';
 import { NO_CONTROLS, RaceHorse, type HorseControls } from './RaceHorse';
-import { SafetyHorse } from './SafetyHorse';
+import { SafetyHorse, type SafetyState } from './SafetyHorse';
+import { ReplayRecorder } from './ReplayRecorder';
 
 export type RacePhase = 'countdown' | 'running' | 'finished';
 
@@ -18,6 +19,29 @@ export interface RaceMessage {
 }
 
 /** ペナルティ・落馬などの出来事（画面上部に警告として出す） */
+/**
+ * レースの節目の出来事（実況テロップ・効果音が読む）。
+ *  start: スタート / crash: 落馬 / safety: セーフティホース出動 / green: レース再開 / final400: 最後の直線・残り 400m
+ *  leadChange: ファイナルラップの先頭交代 / finish: ゴール（position = 着順） / penalty: ペナルティ
+ *  lapLeader: 周回ごとのゴール板通過（先頭の馬） / breakaway: 大逃げ（先頭が 2 番手を大きく離す）
+ *  tailOff: 最後方の馬が馬群から離された / mark1000: 先頭が残り 1000m 標識を通過（value = 先頭〜最後方の馬身）
+ */
+export type RaceEventType =
+  | 'start' | 'crash' | 'safety' | 'green' | 'final400' | 'leadChange' | 'finish' | 'penalty'
+  | 'lapLeader' | 'breakaway' | 'tailOff' | 'mark1000';
+export interface RaceEvent {
+  type: RaceEventType;
+  horse?: RaceHorse;
+  /** finish の着順、final400 の 2 番手との差（秒）、mark1000 の馬身、breakaway / tailOff の差（m）など */
+  value?: number;
+  /** lapLeader：何周目を通過したか・その周のラップ・スタートからの経過（秒） */
+  lap?: number;
+  lapTime?: number;
+  elapsed?: number;
+  /** 演出用の時刻（Race.clock） */
+  at: number;
+}
+
 export interface RaceIncident {
   horse: RaceHorse;
   text: string;
@@ -29,7 +53,8 @@ export interface RaceIncident {
 export interface RaceResultRow {
   /** 着順（ゴール前は途中順位、落馬は null） */
   position: number | null;
-  status: 'FINISHED' | 'RUNNING' | 'PIT RETURN';
+  /** DNF = 柵に接触して落馬・リタイア */
+  status: 'FINISHED' | 'RUNNING' | 'DNF';
   postNumber: number;
   horseName: string;
   jockeyName: string;
@@ -99,6 +124,21 @@ export class Race {
   wear: TurfWear | null = null;
   /** ペナルティ・落馬などの出来事（画面上部の警告表示用。at は演出用の時刻） */
   incidents: RaceIncident[] = [];
+  /** 節目の出来事（実況・効果音用）と、ゴール前リプレイの記録 */
+  events: RaceEvent[] = [];
+  readonly replay = new ReplayRecorder();
+  private lastLeader: RaceHorse | null = null;
+  private lastLeadChangeAt = -Infinity;
+  private final400Fired = false;
+  private lastSafetyState: SafetyState = 'idle';
+  /** 周回通過の実況を出した周回数・残り 1000m 標識を何回通過したか */
+  private lapAnnounced = 0;
+  private mark1000Index: number | null = null;
+  /** 大逃げ・最後方が離された実況：出している間（差が縮むまで再び出さない）と最後に出した時刻 */
+  private breakawayOn = false;
+  private tailOffOn = false;
+  private lastBreakawayAt = -Infinity;
+  private lastTailOffAt = -Infinity;
   /** 芦毛のセーフティホース */
   readonly safety: SafetyHorse;
   /** 演出用の経過時間（カウントダウン中も進む） */
@@ -163,6 +203,18 @@ export class Race {
     this.time = 0;
     this.message = null;
     this.incidents = [];
+    this.events = [];
+    this.replay.reset();
+    this.lastLeader = null;
+    this.lastLeadChangeAt = -Infinity;
+    this.final400Fired = false;
+    this.lastSafetyState = 'idle';
+    this.lapAnnounced = 0;
+    this.mark1000Index = null;
+    this.breakawayOn = false;
+    this.tailOffOn = false;
+    this.lastBreakawayAt = -Infinity;
+    this.lastTailOffAt = -Infinity;
     this.contactTimes.clear();
     this.touchingPairs.clear();
     this.safety.reset();
@@ -292,6 +344,89 @@ export class Race {
     const before = new Map(this.standings.map((h, i) => [h, i]));
     this.updateStandings();
     this.countOvertakes(before);
+    this.detectMilestones();
+    this.detectFieldShape();
+    this.replay.update(this, dt);
+  }
+
+  private emit(type: RaceEventType, horse?: RaceHorse, value?: number, extra?: Partial<RaceEvent>) {
+    this.events.push({ type, horse, value, at: this.clock, ...extra });
+  }
+
+  /**
+   * 展開の実況：残り 1000m 標識の通過（毎周）、大逃げ、最後方が離された追走。
+   * 大逃げ・最後方は、差が縮むまで（と 90 秒間）は繰り返さない。
+   */
+  private detectFieldShape() {
+    if (this.phase !== 'running') return;
+    const field = this.runningField();
+    const leader = field[0];
+    if (!leader || this.horses.some((h) => h.finished)) return;
+    const mpb = this.track.def.metersPerBlock;
+    const L = this.track.length;
+
+    // 残り 1000m 標識：先頭の進み具合が「ゴール板の 1000m 手前」を越えるたび
+    const d = 1000 / mpb;
+    const idx = Math.floor((leader.progress + d) / L);
+    if (this.mark1000Index === null) this.mark1000Index = idx;
+    else if (idx > this.mark1000Index) {
+      this.mark1000Index = idx;
+      const last = field[field.length - 1];
+      const meters = (leader.progress - last.progress) * mpb;
+      if (field.length > 1) this.emit('mark1000', leader, meters / RACE_CONFIG.horseLengthMeters);
+    }
+
+    // セーフティホース中とスタート直後は展開の実況をしない
+    if (this.safety.state !== 'idle' || this.time < 15 || field.length < 3) return;
+    const C = RACE_CONFIG;
+    const second = field[1];
+    // ピットの戦略の違い（片方だけピットに入った）で開いた差は「大逃げ」「離された」とは言わない
+    const leadGap = second.pitCount === leader.pitCount ? (leader.progress - second.progress) * mpb : 0;
+    if (!this.breakawayOn && leadGap > C.breakawayGapMeters && leadGap < 80 && this.clock - this.lastBreakawayAt > 90) {
+      this.breakawayOn = true;
+      this.lastBreakawayAt = this.clock;
+      this.emit('breakaway', leader, leadGap);
+    } else if (this.breakawayOn && leadGap < C.breakawayGapMeters * 0.5) this.breakawayOn = false;
+
+    const last = field[field.length - 1];
+    const ahead = field[field.length - 2];
+    const tailGap = ahead.pitCount === last.pitCount ? (ahead.progress - last.progress) * mpb : 0;
+    if (!this.tailOffOn && tailGap > C.tailOffGapMeters && tailGap < 60 && this.clock - this.lastTailOffAt > 90) {
+      this.tailOffOn = true;
+      this.lastTailOffAt = this.clock;
+      this.emit('tailOff', last, tailGap);
+    } else if (this.tailOffOn && tailGap < C.tailOffGapMeters * 0.5) this.tailOffOn = false;
+  }
+
+  /** 節目の検出：セーフティホースの出動・解除、最後の直線（残り 400m）、ファイナルラップの先頭交代 */
+  private detectMilestones() {
+    if (this.phase !== 'running') return;
+    const sc = this.safety.state;
+    if (sc === 'standby' && this.lastSafetyState !== 'standby') this.emit('safety');
+    if (sc === 'pitIn' && this.lastSafetyState === 'returning') this.emit('green');
+    this.lastSafetyState = sc;
+
+    const leader = this.standings.find((h) => !h.retired && !h.finished);
+    if (!leader || this.horses.some((h) => h.finished)) return;
+    const finalLap = leader.lapsCompleted === this.laps - 1;
+    if (!finalLap) {
+      this.lastLeader = leader;
+      return;
+    }
+    const mpb = this.track.def.metersPerBlock;
+    const toLineM = -this.track.diff(leader.s, this.track.def.finishS) * mpb;
+    if (!this.final400Fired && toLineM > 0 && toLineM <= 400) {
+      this.final400Fired = true;
+      const second = this.standings.find((h) => h !== leader && !h.retired && !h.finished);
+      const gap = second ? this.gapTo(second, leader)?.seconds : undefined;
+      this.emit('final400', leader, gap);
+    }
+    // 先頭交代（連続しないよう 3 秒あける）
+    if (this.lastLeader && leader !== this.lastLeader && this.clock - this.lastLeadChangeAt > 3) {
+      this.lastLeadChangeAt = this.clock;
+      this.emit('leadChange', leader);
+    }
+    this.lastLeader = leader;
   }
 
   /** コース上を走っている馬（落馬・ゴール・ピットレーンの馬を除く）を順位順に */
@@ -352,7 +487,7 @@ export class Race {
       const fl = h.fastestLap;
       return {
         position: h.retired ? null : (h.finishPosition ?? this.positionOf(h)),
-        status: h.retired ? 'PIT RETURN' : h.finished ? 'FINISHED' : 'RUNNING',
+        status: h.retired ? 'DNF' : h.finished ? 'FINISHED' : 'RUNNING',
         postNumber: h.postNumber,
         horseName: h.entry.horse.name,
         jockeyName: h.entry.jockey.name,
@@ -383,6 +518,7 @@ export class Race {
   /** 出来事を記録して画面上部に警告を出す。注目している馬なら画面中央にも赤く出す */
   private report(horse: RaceHorse, text: string) {
     this.incidents.push({ horse, text, at: this.clock });
+    if (text.startsWith('PENALTY') || text.startsWith('STOP')) this.emit('penalty', horse);
     if (horse === this.focus) this.notify(text, 3, 'penalty');
   }
 
@@ -443,7 +579,8 @@ export class Race {
   private crash(h: RaceHorse) {
     const C = RACE_CONFIG;
     h.retire(this.time);
-    this.report(h, `落馬 — ${h.postNumber}番 ${h.entry.horse.name} PIT RETURN`);
+    this.emit('crash', h);
+    this.report(h, `落馬 DNF — ${h.postNumber}番 ${h.entry.horse.name}（PIT RETURN）`);
     // 接触・押し出しで落馬させた馬：STOP & GO（直前の接触ペナルティ +10s はこれに置き換える）
     const by = h.lastHitBy;
     if (by && !by.retired && this.clock - h.lastHitAt < C.crashBlameWindow) {
@@ -552,6 +689,7 @@ export class Race {
     for (const h of this.horses) h.rollStart(Math.random);
     const r = this.focus.startResult;
     this.notify(r === 'rocket' ? 'ロケットスタート！' : r === 'late' ? '出遅れ…！' : 'スタート！', 1.6);
+    this.emit('start');
   }
 
   /**
@@ -679,12 +817,25 @@ export class Race {
       const finished = this.horses.filter((h) => h.finishTime !== null);
       finished.sort((a, b) => this.correctedTime(a)! - this.correctedTime(b)!);
       finished.forEach((h, i) => (h.finishPosition = i + 1));
+      this.emit('finish', horse, horse.finishPosition ?? undefined);
       if (horse === this.focus) {
         const pen = horse.penaltySeconds > 0 ? `（ペナルティ +${horse.penaltySeconds}s 込み）` : '';
         this.notify(`FINISH! ${horse.finishPosition}着${pen}`, 4);
       }
       if (this.horses.every((h) => h.finished || h.retired)) this.endRace();
-    } else if (horse === this.focus) {
+    } else {
+      // 周回ごとのゴール板通過：その周回を最初に終えた馬（＝先頭）を実況する
+      if (horse.lapsCompleted > this.lapAnnounced) {
+        this.lapAnnounced = horse.lapsCompleted;
+        this.emit('lapLeader', horse, undefined, {
+          lap: horse.lapsCompleted,
+          lapTime: horse.lapTimes[horse.lapTimes.length - 1],
+          elapsed: this.time,
+        });
+      }
+    }
+    if (horse.finished) return;
+    if (horse === this.focus) {
       if (horse.lapsCompleted === this.laps - 1) this.notify('ファイナルラップ！', 2.5);
       else this.notify(`LAP ${horse.lapsCompleted + 1}/${this.laps}`, 2);
     }

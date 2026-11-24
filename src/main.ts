@@ -23,6 +23,10 @@ import { StandingsPanel } from './ui/StandingsPanel';
 import { Minimap } from './ui/Minimap';
 import { StartGate } from './scene/StartGate';
 import { TurfParticles } from './scene/TurfParticles';
+import { Commentary, marginText } from './ui/Commentary';
+import { ResultScreen } from './ui/ResultScreen';
+import { Sfx } from './audio/Sfx';
+import type { ReplayHorseFrame } from './race/ReplayRecorder';
 
 /**
  * 確認用 URL パラメーター
@@ -36,6 +40,7 @@ import { TurfParticles } from './scene/TurfParticles';
  *   ?preview=pit&s=380 コースのプレビュー走行で開始
  *   ?ff=300            レースを指定秒数だけ早送りしてから表示（?mode= と一緒に使う）
  *   &crash=60          早送り中、レース時間がこの秒数になったら注目している馬を外ラチに衝突させる（落馬・SC の確認用）
+ *   &replay=12         早送りでレースが終わっていたら、ゴール前リプレイのこの秒数で一時停止して開く（photo = 写真判定の瞬間）
  */
 const params = new URLSearchParams(location.search);
 const numParam = (key: string) => (params.has(key) ? Number(params.get(key)) : undefined);
@@ -113,6 +118,9 @@ const hud = new RaceHud();
 const standings = new StandingsPanel(document.querySelector('#standings tbody')!, race.horses.length);
 const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, track);
 const input = new KeyboardInput();
+const commentary = new Commentary();
+const resultScreen = new ResultScreen();
+const sfx = new Sfx();
 
 // --- Camera rig ---
 const rig = new CameraRig(camera, controls, track);
@@ -203,11 +211,195 @@ const watchAfterRetire = () => {
   race.notify('観戦カメラに切替 — R でリスタート', 3.5);
 };
 
+// --- レース後：リザルトとゴール前リプレイ ---
+/** リザルトを出したか（全馬ゴールの 2.5 秒後に 1 度だけ自動で出す）と、レースが終わった時刻 */
+let resultShown = false;
+let finishedAt: number | null = null;
+const replay = {
+  active: false,
+  t: 0,
+  speed: 1,
+  paused: false,
+  look: new THREE.Vector3(),
+  lookInit: false,
+  /** 写真判定：先頭の馬の鼻先がゴールラインに届くリプレイ上の時刻と、その演出を出したか・一時停止の残り秒 */
+  photoT: null as number | null,
+  photoDone: false,
+  freeze: 0,
+};
+/** 馬体の中心から鼻先まで（ブロック）。ゴールの判定は馬体の中心で行っているので、鼻先が線に届くのは少し前 */
+const NOSE_BLOCKS = 1.7;
+/** 写真判定の前後でスローになる範囲（秒）と速さ、ゴールの瞬間に止める秒数 */
+const PHOTO_SLOW_BEFORE = 0.8;
+const PHOTO_SLOW_AFTER = 1.4;
+const PHOTO_SLOW_SPEED = 0.25;
+const PHOTO_FREEZE = 1.4;
+const photoFlash = document.getElementById('photo-flash')!;
+const photoCard = document.getElementById('photo-card')!;
+const photoCardSub = photoCard.querySelector('.sub') as HTMLElement;
+const finishPost = scene.getObjectByName('finish-post');
+const replayPlayBtn = document.getElementById('replay-play')!;
+const replayTimeEl = document.getElementById('replay-time')!;
+const replaySpeedBtns = document.querySelectorAll<HTMLButtonElement>('[data-replay-speed]');
+
+const showResults = () => {
+  resultShown = true;
+  document.body.classList.add('showing-result');
+  resultScreen.show(race);
+};
+
+const hideResults = () => {
+  resultScreen.hide();
+  document.body.classList.remove('showing-result');
+};
+
+const setReplaySpeed = (speed: number) => {
+  replay.speed = speed;
+  replaySpeedBtns.forEach((b) => b.classList.toggle('active', Number(b.dataset.replaySpeed) === speed));
+};
+
+/** ゴール前リプレイを始める（レースは止めて、記録した 4コーナー出口〜ゴール後を再生） */
+const startReplay = () => {
+  if (!race.replay.available) return;
+  hideResults();
+  document.body.classList.add('replaying');
+  replay.active = true;
+  replay.t = 0;
+  replay.paused = false;
+  replay.lookInit = false;
+  replayPlayBtn.textContent = '一時停止';
+  setReplaySpeed(1);
+  setupPhotoFinish();
+  rig.hold();
+  if (finishPost) finishPost.visible = false;
+  for (const m of horseModels.values()) m.setJockeyHeadVisible(true);
+  safetyModel.root.visible = false;
+  turfParticles.clear();
+};
+
+const stopReplay = (backToResults = true) => {
+  if (!replay.active) return;
+  replay.active = false;
+  document.body.classList.remove('replaying', 'photo-locked');
+  photoCard.classList.remove('show');
+  if (finishPost) finishPost.visible = true;
+  for (const m of horseModels.values()) m.root.visible = true;
+  rig.follow(rig.followStyle);
+  if (backToResults) showResults();
+};
+
+/**
+ * 写真判定の準備：1 着の馬（記録中にゴールしていなければ最初に線を越えた馬）の鼻先がゴールラインに届く時刻と、
+ * 判定結果（1 着・2 着と着差）。着差はリザルトと同じペナルティ込みのタイム差。
+ */
+const setupPhotoFinish = () => {
+  const list = [...race.replay.finishes].sort((a, b) => a.t - b.t);
+  replay.photoDone = false;
+  replay.freeze = 0;
+  photoCard.classList.remove('show');
+  const target = list.find((f) => race.horses[f.index].finishPosition === 1) ?? list[0];
+  if (!target) {
+    replay.photoT = null;
+    return;
+  }
+  replay.photoT = Math.max(0, target.t - (NOSE_BLOCKS * mpb) / Math.max(1, target.speed));
+  const name = (h: RaceHorse) => `${h.postNumber}番 ${h.entry.horse.name}`;
+  const winner = race.horses[target.index];
+  const second = race.horses.find((h) => h.finishPosition === 2);
+  const lines = [`1着 ${name(winner)}`];
+  if (second) {
+    const gap = (race.correctedTime(second) ?? 0) - (race.correctedTime(winner) ?? 0);
+    lines.push(`2着 ${name(second)}　着差 ${marginText(gap)}${gap < 0.15 ? '（大接戦）' : ''}`);
+  }
+  // ペナルティで順位が入れ替わった時は、先頭で線を越えた馬も書いておく
+  const firstAcross = race.horses[list[0].index];
+  if (firstAcross !== winner) lines.push(`<small>先頭入線 ${name(firstAcross)}（ペナルティ +${firstAcross.penaltySeconds}s）</small>`);
+  photoCardSub.innerHTML = lines.join('<br>');
+};
+
+/** 写真判定の瞬間：フラッシュ・シャッター音・判定結果の表示 */
+const firePhotoFinish = () => {
+  replay.photoDone = true;
+  replay.freeze = PHOTO_FREEZE;
+  photoFlash.classList.remove('flash');
+  void photoFlash.offsetWidth;
+  photoFlash.classList.add('flash');
+  photoCard.classList.add('show');
+  sfx.shutter();
+};
+
+/** リプレイの時間を進める（写真判定の前後はスロー、鼻先がラインに届いた瞬間に一瞬止める） */
+const advanceReplay = (dt: number) => {
+  if (replay.paused) return;
+  if (replay.freeze > 0) {
+    replay.freeze -= dt;
+    return;
+  }
+  const pt = replay.photoT;
+  let speed = replay.speed;
+  if (pt !== null && replay.t > pt - PHOTO_SLOW_BEFORE && replay.t < pt + PHOTO_SLOW_AFTER) speed = Math.min(speed, PHOTO_SLOW_SPEED);
+  let next = replay.t + dt * speed;
+  if (pt !== null && !replay.photoDone && replay.t <= pt && next >= pt) {
+    next = pt;
+    firePhotoFinish();
+  }
+  replay.t = Math.min(race.replay.duration, next);
+  // 判定結果はゴールから 5 秒ほどで消す
+  if (pt !== null && replay.t > pt + 5) photoCard.classList.remove('show');
+};
+
+/**
+ * リプレイのカメラ：写真判定カメラのように、コース外側・ゴールラインの延長線上に固定する。
+ * 馬が遠いうちは先頭の馬を追ってパン・ズームし、ゴール前 50m からゴールラインの真横を向いて固定する。
+ * 固定するとゴールラインが画面のちょうど中央の縦線になるので、そこに判定線を重ねる。
+ */
+const updateReplayCamera = (frames: ReplayHorseFrame[], dt: number) => {
+  const finishS = KYOTO_OUTER.finishS;
+  const camPos = track.frameAt(finishS, -(track.railLateral + 8 / mpb)).position;
+  camPos.y += 6 / mpb;
+  // 先頭の馬（ゴール板の 600m 手前を基準に、いちばん進んでいる馬）
+  const ref = finishS - 600 / mpb;
+  let lead: ReplayHorseFrame | null = null;
+  for (const f of frames) if (!f.hidden && (!lead || track.diff(f.s, ref) > track.diff(lead.s, ref))) lead = f;
+  if (!lead) return;
+  const follow = track.frameAt(lead.s, lead.lateral + 2).position;
+  follow.y = world.topAt(follow.x, follow.z) + 1.4;
+  // ゴールライン上（先頭の馬と同じ進路）の点。カメラもゴールラインの延長線上なので、ここを向けば線は画面中央
+  const line = track.frameAt(finishS, lead.lateral).position;
+  line.y = world.topAt(line.x, line.z) + 1.2;
+  const toLineM = -track.diff(lead.s, finishS) * mpb;
+  const lock = 1 - THREE.MathUtils.smoothstep(toLineM, 12, 50);
+  const target = follow.lerp(line, lock);
+  if (!replay.lookInit) {
+    replay.look.copy(target);
+    replay.lookInit = true;
+  } else replay.look.lerp(target, 1 - Math.exp(-dt * (lock > 0.99 ? 12 : 4)));
+  camera.position.copy(camPos);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(replay.look);
+  controls.target.copy(replay.look);
+  document.body.classList.toggle('photo-locked', lock > 0.97);
+  // 遠いうちは横幅 約 20m、固定したら 約 15m を画面に収める（ズーム）
+  const dist = camPos.distanceTo(replay.look);
+  const halfHeight = THREE.MathUtils.lerp(8, 3.6, lock);
+  const fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(halfHeight / dist)), 5, 45);
+  if (Math.abs(camera.fov - fov) > 0.05) {
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+  }
+};
+
 /** 同じモードのままレースをやり直す */
 const restartRace = () => {
+  stopReplay(false);
+  hideResults();
+  resultShown = false;
+  finishedAt = null;
   race.restart();
   startGate.reset();
   turfParticles.clear();
+  commentary.reset();
+  sfxRead = 0;
   // 落馬で観戦に切り替わっていたら、シンプルレースに戻す
   if (chosenMode === 'race' && appMode === 'spectate' && race.player) {
     applyModeUi('race');
@@ -239,6 +431,11 @@ const startMode = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
 
 /** タイトル（モード選択）に戻る。背景ではコース全景をゆっくり回す */
 const showTitle = () => {
+  stopReplay(false);
+  hideResults();
+  resultShown = false;
+  finishedAt = null;
+  commentary.reset();
   appMode = 'title';
   document.body.dataset.mode = 'title';
   race.configure(null);
@@ -284,6 +481,39 @@ standings.onSelect = (h) => {
   if (appMode === 'spectate') setFocus(h);
 };
 
+// リザルト・リプレイ
+resultScreen.onReplay = startReplay;
+resultScreen.onRetry = restartRace;
+resultScreen.onTitle = showTitle;
+onClick(replayPlayBtn, () => {
+  // 最後まで再生していたら最初から
+  if (replay.t >= race.replay.duration) {
+    replay.t = 0;
+    setupPhotoFinish();
+  }
+  replay.paused = !replay.paused;
+  replayPlayBtn.textContent = replay.paused ? '再生' : '一時停止';
+});
+replaySpeedBtns.forEach((b) => onClick(b, () => setReplaySpeed(Number(b.dataset.replaySpeed))));
+onClick(document.getElementById('replay-close')!, () => stopReplay(true));
+
+// 効果音：ブラウザは操作があるまで音を出せないので、最初のクリック・キーで有効にする
+let sfxRead = 0;
+const sfxButton = document.getElementById('sfx-toggle')!;
+const refreshSfxButton = () => {
+  sfxButton.textContent = sfx.muted ? 'SE OFF' : 'SE ON';
+  sfxButton.classList.toggle('off', sfx.muted);
+};
+const toggleSfx = () => {
+  sfx.unlock();
+  sfx.setMuted(!sfx.muted);
+  refreshSfxButton();
+};
+refreshSfxButton();
+onClick(sfxButton, toggleSfx);
+window.addEventListener('pointerdown', () => sfx.unlock());
+window.addEventListener('keydown', () => sfx.unlock());
+
 /** 順位で 1 つ上（-1）/ 下（+1）の馬 */
 function neighbor(dir: 1 | -1): RaceHorse {
   const i = race.standings.indexOf(race.focus);
@@ -293,6 +523,11 @@ function neighbor(dir: 1 | -1): RaceHorse {
 
 const KEY_VIEWS: Record<string, ViewId> = { Digit1: 'overview', Digit2: 'hill', Digit3: 'pit', Digit4: 'finish' };
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyM' && appMode !== 'title') toggleSfx();
+  if (replay.active) {
+    if (e.code === 'Escape') stopReplay(true);
+    return;
+  }
   if (appMode === 'race') {
     if (KEY_VIEWS[e.code]) rig.goTo(KEY_VIEWS[e.code]);
     else if (e.code === 'Digit5') togglePreview(false);
@@ -334,6 +569,23 @@ if (initialMode === 'race' || initialMode === 'spectate') {
       startGate.update(1 / 60, race);
     }
     rig.snapFollow();
+    // 早送りでレースが終わっていたらすぐリザルト。&replay=秒 ならその時点のリプレイで一時停止
+    if (race.phase === 'finished') {
+      showResults();
+      // &replay=photo なら写真判定の瞬間（鼻先がゴールラインに届いた所）で止める
+      const rt = params.get('replay') === 'photo' ? 'photo' : numParam('replay');
+      if (rt !== undefined) {
+        startReplay();
+        replay.t = rt === 'photo' ? (replay.photoT ?? 0) : rt;
+        replay.paused = true;
+        // 写真判定の瞬間より後から開いたら、判定結果を出しておく
+        if (replay.photoT !== null && replay.t >= replay.photoT) {
+          replay.photoDone = true;
+          if (replay.t < replay.photoT + 5) photoCard.classList.add('show');
+        }
+        replayPlayBtn.textContent = '再生';
+      }
+    }
   }
 } else {
   showTitle();
@@ -355,10 +607,39 @@ renderer.setAnimationLoop((time) => {
   const dt = Math.min(Math.max(timer.getDelta(), 0), 0.1);
 
   const pressed = input.consumePressed();
+
+  // --- ゴール前リプレイ再生中：レースは止めて、記録を再生する ---
+  if (replay.active) {
+    advanceReplay(dt);
+    if (replay.t >= race.replay.duration && !replay.paused) {
+      replay.paused = true;
+      replayPlayBtn.textContent = 'もう一度';
+    }
+    replayTimeEl.textContent = `${replay.t.toFixed(1)}s`;
+    const frames = race.replay.sample(replay.t, track);
+    race.horses.forEach((h, i) => {
+      const model = horseModels.get(h)!;
+      const f = frames[i];
+      model.root.visible = !f.hidden;
+      if (!f.hidden) model.sync(f, track, world.topAt, dt);
+    });
+    updateReplayCamera(frames, dt);
+    clouds.update(dt);
+    lights.follow(controls.target);
+    renderer.render(scene, camera);
+    return;
+  }
+
   if (appMode !== 'title') {
     if (pressed.has('KeyC')) rig.toggleFollowStyle();
     if (pressed.has('KeyR')) restartRace();
   }
+
+  // 効果音：赤ランプの点灯・ゲート開放
+  const litBefore = race.lightsOn;
+  const phaseBefore = race.phase;
+  const focusWhipsBefore = race.focus.whipsThisLap;
+  const focusBefore = race.focus;
 
   if (appMode === 'race' && race.player) {
     if (pressed.has('KeyP')) race.player.togglePitRequest();
@@ -377,6 +658,28 @@ renderer.setAnimationLoop((time) => {
 
   // シンプルレースで落馬したら、倒れる様子を少し見せてから観戦カメラへ
   if (appMode === 'race' && race.player?.retired && race.time - race.player.retireTime > 2.5) watchAfterRetire();
+
+  if (appMode !== 'title') {
+    // --- 効果音 ---
+    if (race.lightsOn > litBefore) sfx.lightOn();
+    if (phaseBefore === 'countdown' && race.phase === 'running') sfx.gateOpen();
+    if (race.focus === focusBefore && race.focus.whipsThisLap > focusWhipsBefore) sfx.whip();
+    while (sfxRead < race.events.length) {
+      const ev = race.events[sfxRead++];
+      if (ev.type === 'crash') sfx.crash();
+      else if (ev.type === 'safety') sfx.safety();
+      else if (ev.type === 'green') sfx.greenFlag();
+      else if (ev.type === 'penalty') sfx.penalty(ev.horse === race.focus);
+      else if (ev.type === 'finish' && (ev.value === 1 || ev.horse === race.player)) sfx.finish();
+    }
+    // --- 実況テロップ ---
+    commentary.update(dt, race);
+    // --- 全馬ゴール（レース終了）から 2.5 秒でリザルト ---
+    if (race.phase === 'finished') {
+      finishedAt ??= race.clock;
+      if (!resultShown && race.clock - finishedAt > 2.5) showResults();
+    }
+  }
 
   for (const [h, model] of horseModels) model.sync(h, track, world.topAt, dt);
   // 荒れた芝の上では蹄から土煙・芝片が舞う

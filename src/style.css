@@ -647,3 +647,407 @@ body[data-mode='title'] #flag-banner {
 #race-hud .pace-seg {
   white-space: nowrap;
 }
+
+/* ---------- 実況テロップ ---------- */
+#commentary {
+  position: fixed;
+  left: 350px;
+  right: 350px;
+  justify-content: center;
+  bottom: 70px;
+  display: flex;
+  align-items: stretch;
+  transform: translateY(30px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.25s ease-out,
+    opacity 0.25s;
+}
+#commentary.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+#commentary .label {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  background: #c0281c;
+}
+#commentary .text {
+  padding: 9px 18px;
+  color: #111;
+  font-size: 19px;
+  font-weight: 800;
+  background: linear-gradient(#ffffff, #e9eef4);
+  border-bottom: 4px solid #1f5fbf;
+}
+
+/* ---------- 効果音の ON/OFF ---------- */
+#sfx-toggle {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: #2f7d3a;
+  border: 2px solid #6fd17d;
+  border-radius: 0;
+  cursor: pointer;
+}
+#sfx-toggle.off {
+  background: #444;
+  border-color: #777;
+}
+
+/* ---------- ゴール前リプレイ ---------- */
+#replay-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 2px solid #ffd23a;
+  transform: translateX(-50%);
+}
+body.replaying #replay-bar {
+  display: flex;
+}
+#replay-bar .badge {
+  padding: 2px 8px;
+  font-weight: 900;
+  color: #111;
+  background: #ffd23a;
+  animation: rail-blink 0.8s steps(2) infinite;
+}
+#replay-bar .title {
+  margin-right: 6px;
+  font-weight: 700;
+}
+#replay-bar .time {
+  min-width: 48px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#replay-bar button,
+.result-buttons button {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: #3b3b3b;
+  border: 2px solid #777;
+  border-radius: 0;
+  cursor: pointer;
+}
+#replay-bar button.active {
+  background: #2f7d3a;
+  border-color: #6fd17d;
+}
+/* 写真判定：画面中央（= ゴールライン）の赤い判定線と目盛り */
+#photo-line {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  display: none;
+  pointer-events: none;
+}
+body.replaying.photo-locked #photo-line {
+  display: block;
+}
+#photo-line::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: #ff2a2a;
+  box-shadow: 0 0 4px rgba(255, 40, 40, 0.8);
+}
+#photo-line .ticks {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -9px;
+  width: 18px;
+  background:
+    repeating-linear-gradient(to bottom, rgba(255, 60, 60, 0.95) 0 2px, transparent 2px 40px),
+    repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.6) 0 1px, transparent 1px 10px);
+  background-size: 18px 100%, 8px 100%;
+  background-position: 0 0, 5px 0;
+  background-repeat: repeat-y;
+}
+#photo-line .tag {
+  position: absolute;
+  top: 14px;
+  left: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #fff;
+  background: #c41e1e;
+}
+#photo-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: #fff;
+  opacity: 0;
+}
+#photo-flash.flash {
+  animation: photo-flash 0.6s ease-out;
+}
+@keyframes photo-flash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+#photo-card {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 22px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.78);
+  border: 2px solid #ff3a3a;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+body.replaying #photo-card.show {
+  display: flex;
+}
+#photo-card b {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: #ff4a4a;
+}
+#photo-card .sub {
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.5;
+}
+/* リプレイ中・リザルト表示中はレース中の表示を隠す */
+body.replaying #left-panel,
+body.replaying #race-hud,
+body.replaying #hud,
+body.replaying #spectator-panel,
+body.replaying #center-msg,
+body.replaying #flag-banner,
+body.replaying #penalty-toast,
+body.replaying #commentary,
+body.replaying #start-lights,
+body.showing-result #race-hud,
+body.showing-result #center-msg,
+body.showing-result #commentary,
+body.showing-result #flag-banner {
+  display: none !important;
+}
+
+/* ---------- リザルト ---------- */
+#result-screen {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+#result-screen.show {
+  display: flex;
+}
+.result-box {
+  max-width: 96vw;
+  max-height: 94vh;
+  overflow: auto;
+  padding: 14px 18px 16px;
+  color: #fff;
+  background: rgba(12, 16, 22, 0.96);
+  border: 3px solid #3a4658;
+}
+.result-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.result-head b {
+  font-size: 26px;
+  letter-spacing: 3px;
+  color: #ffd23a;
+}
+.result-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+/* 確定掲示板（オレンジの電光表示） */
+#result-board {
+  flex: none;
+  width: 190px;
+  padding: 8px;
+  color: #ff9a1a;
+  background: #0a0a0a;
+  border: 4px solid #2a2a2a;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-weight: 700;
+}
+#result-board .b-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #ccc;
+}
+#result-board .b-lamp {
+  padding: 2px 8px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+  background: #d83a3a;
+  box-shadow: 0 0 10px rgba(255, 60, 40, 0.8);
+}
+#result-board .b-row {
+  display: grid;
+  grid-template-columns: 26px 36px 1fr;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 22px;
+  border-top: 1px solid #222;
+  text-shadow: 0 0 6px rgba(255, 140, 20, 0.7);
+}
+#result-board .b-pos {
+  color: #ffd23a;
+}
+#result-board .b-margin {
+  font-size: 14px;
+  text-align: right;
+}
+#result-board .b-foot {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #ffd23a;
+}
+#result-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+#result-table th {
+  padding: 4px 8px;
+  color: #9aa6b8;
+  font-weight: normal;
+  font-size: 11px;
+  border-bottom: 2px solid #3a4658;
+}
+#result-table td {
+  padding: 4px 8px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  white-space: nowrap;
+}
+#result-table .l {
+  text-align: left;
+}
+#result-table .t {
+  text-align: right;
+}
+#result-table small {
+  color: #9aa6b8;
+}
+#result-table .pos {
+  font-size: 16px;
+  font-weight: 900;
+}
+#result-table tr.winner td {
+  background: rgba(255, 210, 58, 0.14);
+}
+#result-table tr.winner .pos {
+  color: #ffd23a;
+}
+#result-table tr.retired td {
+  color: #888;
+}
+#result-table .dnf {
+  font-size: 12px;
+  color: #ff6b5a;
+}
+#result-table .bk {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  font-weight: 800;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+}
+#result-table .team {
+  display: inline-block;
+  width: 10px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+/* 全体のファステストラップ（F1 と同じ紫） */
+#result-table td.fastest {
+  color: #e0a8ff;
+  font-weight: 800;
+  background: rgba(150, 60, 220, 0.25);
+}
+#result-table td.pen {
+  color: #ff6b5a;
+  font-weight: 700;
+}
+.result-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.result-buttons button {
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 700;
+}
+#result-replay {
+  background: #b8860b;
+  border-color: #ffd23a;
+}
+#result-replay:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+#result-retry {
+  background: #2f7d3a;
+  border-color: #6fd17d;
+}
+#result-title {
+  background: #5a2a2a;
+  border-color: #a05050;
+}
+body[data-mode='title'] #commentary,
+body[data-mode='title'] #sfx-toggle {
+  display: none;
+}
+#commentary .label,
+#commentary .text {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}

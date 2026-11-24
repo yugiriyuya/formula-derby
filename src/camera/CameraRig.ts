@@ -3,7 +3,8 @@ import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js
 import type { CourseTrack } from '../course/CourseTrack';
 
 export type ViewId = 'overview' | 'hill' | 'pit' | 'finish';
-export type CameraMode = 'orbit' | 'transition' | 'preview' | 'follow';
+/** manual = カメラを外から直接動かす（ゴール前リプレイの中継カメラなど）。リグは何もしない */
+export type CameraMode = 'orbit' | 'transition' | 'preview' | 'follow' | 'manual';
 /** chase = 後方視点（三人称）, jockey = 騎手視点（一人称）, broadcast = 中継俯瞰視点 */
 export type FollowStyle = 'chase' | 'jockey' | 'broadcast';
 
@@ -228,7 +229,13 @@ export class CameraRig {
     }
   }
 
+  /** カメラを外から直接動かす（リグは止める）。戻す時は follow() や goTo() を呼ぶ */
+  hold() {
+    this.setMode('manual');
+  }
+
   update(dt: number) {
+    if (this._mode === 'manual') return;
     let targetFov = BASE_FOV;
 
     if (this._mode === 'transition' && this.from && this.to) {

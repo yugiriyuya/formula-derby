@@ -139,7 +139,7 @@ export class RaceHud {
       // 赤ランプが全部消えた瞬間にゲートが開く
       sub = race.spectating ? '観戦モード — ← → で注目する馬を切替' : 'ブラックアウトでスタート ・ W/S でペース';
     } else if (h.retired) {
-      big = '落馬 — PIT RETURN';
+      big = '落馬 — DNF';
       sub = race.spectating ? `${h.postNumber}番 ${h.entry.horse.name} はリタイアしてピットへ戻ります` : 'R でリスタート';
     } else if (race.spectating && race.phase === 'finished') {
       // 観戦モード：全頭ゴールしたら結果

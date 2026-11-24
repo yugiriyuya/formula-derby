@@ -111,6 +111,45 @@
 
     <div id="center-msg"><div id="c-big"></div><div id="c-sub"></div></div>
 
+    <!-- 実況テロップ -->
+    <div id="commentary"><span class="label">実況</span><span class="text"></span></div>
+
+    <!-- 効果音の ON/OFF -->
+    <button id="sfx-toggle" title="効果音の ON/OFF（M）">SE ON</button>
+
+    <!-- ゴール前リプレイの操作 -->
+    <div id="replay-bar">
+      <span class="badge">REPLAY</span>
+      <span class="title">ゴール前リプレイ</span>
+      <button id="replay-play">一時停止</button>
+      <button data-replay-speed="1" class="active">通常</button>
+      <button data-replay-speed="0.4">スロー</button>
+      <button data-replay-speed="0.15">超スロー</button>
+      <span id="replay-time" class="time">0.0s</span>
+      <button id="replay-close">リザルトへ戻る</button>
+    </div>
+
+    <!-- 写真判定（スリットカメラ風の判定ライン・フラッシュ・判定結果） -->
+    <div id="photo-line"><div class="ticks"></div><span class="tag">FINISH</span></div>
+    <div id="photo-flash"></div>
+    <div id="photo-card"><b>PHOTO FINISH</b><span class="sub"></span></div>
+
+    <!-- レース後の詳細リザルト -->
+    <div id="result-screen">
+      <div class="result-box">
+        <div class="result-head"><b>RESULT</b><span>レース結果</span></div>
+        <div class="result-body">
+          <div id="result-board"></div>
+          <div id="result-table"></div>
+        </div>
+        <div class="result-buttons">
+          <button id="result-replay">ゴール前リプレイ再生</button>
+          <button id="result-retry">同じ条件で再レース</button>
+          <button id="result-title">タイトルへ戻る</button>
+        </div>
+      </div>
+    </div>
+
     <!-- タイトル（モード選択） -->
     <div id="title-screen">
       <div class="title-box">
