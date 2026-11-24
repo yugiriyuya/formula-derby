@@ -2,7 +2,9 @@ import { HORSESHOES } from '../data/horseshoes';
 import { constructorOf } from '../data/roster';
 import { bracketColor } from '../data/brackets';
 import type { Race } from '../race/Race';
-import { RACE_CONFIG } from '../race/raceConfig';
+import { PACE_LEVELS, RACE_CONFIG, type PaceLevel } from '../race/raceConfig';
+
+const PACE_SHORT: Record<PaceLevel, string> = { relaxed: '折り合い', normal: '標準', high: 'ハイ' };
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -42,6 +44,7 @@ export class RaceHud {
     slip: $('h-slip'),
     toast: $('penalty-toast'),
     rail: $('h-rail'),
+    rough: $('h-rough'),
     flag: $('flag-banner'),
   };
   private readonly lampUnits = [...document.querySelectorAll<HTMLElement>('#start-lights .lamp-unit')];
@@ -62,9 +65,18 @@ export class RaceHud {
     e.post.textContent = String(h.postNumber);
     e.post.style.background = badge.bg;
     e.post.style.color = badge.fg;
-    this.paceSegs.forEach((s) => s.classList.toggle('on', s.dataset.pace === h.paceLevel));
+    // ペースごとの巡航速度（km/h）を出して違いを分かりやすく
+    const baseTop = RACE_CONFIG.topSpeedBase + h.entry.horse.stats.speed * RACE_CONFIG.topSpeedPerStat;
+    this.paceSegs.forEach((s) => {
+      const level = s.dataset.pace as PaceLevel;
+      s.classList.toggle('on', level === h.paceLevel);
+      s.textContent = `${PACE_SHORT[level]} ${Math.round(baseTop * PACE_LEVELS[level].ratio * 3.6)}`;
+    });
+    // 荒れた芝でのグリップ低下（減速の大きさ）
+    const roughLoss = h.inPit || h.retired ? 0 : baseTop * h.groundWear * RACE_CONFIG.roughPenalty[h.shoe] * 3.6;
+    e.rough.textContent = roughLoss >= 0.5 ? `荒れ馬場 −${roughLoss.toFixed(1)}km/h` : '';
     e.name.textContent = h.entry.horse.name;
-    e.team.textContent = `${team.name}（${team.nameEn}）・${h.entry.jockey.name}`;
+    e.team.textContent = `${team.name}（${team.nameEn}）・${h.entry.jockey.name} ・ ${h.style.label} ・ 単勝 ${h.odds.toFixed(1)}倍（${h.popularity}人気）`;
     e.swatch.style.background = `#${team.color.toString(16).padStart(6, '0')}`;
 
     const pos = h.finishPosition ?? race.positionOf(h);
@@ -127,8 +139,8 @@ export class RaceHud {
       // 赤ランプが全部消えた瞬間にゲートが開く
       sub = race.spectating ? '観戦モード — ← → で注目する馬を切替' : 'ブラックアウトでスタート ・ W/S でペース';
     } else if (h.retired) {
-      big = '落馬 — RETIRED';
-      sub = race.spectating ? `${h.postNumber}番 ${h.entry.horse.name} はリタイア` : 'R でリスタート';
+      big = '落馬 — PIT RETURN';
+      sub = race.spectating ? `${h.postNumber}番 ${h.entry.horse.name} はリタイアしてピットへ戻ります` : 'R でリスタート';
     } else if (race.spectating && race.phase === 'finished') {
       // 観戦モード：全頭ゴールしたら結果
       const winner = race.standings[0];

@@ -114,7 +114,7 @@ export class StandingsPanel {
 
   private gapText(race: Race, h: RaceHorse, leader: RaceHorse): string {
     if (race.phase === 'countdown') return '';
-    if (h.retired) return 'DNF';
+    if (h.retired) return 'PIT RETURN';
     // スタート直後の数秒は発馬の結果を出す
     if (race.time < 4 && h.startResult === 'rocket') return '好発';
     if (race.time < 4 && h.startResult === 'late') return '出遅れ';

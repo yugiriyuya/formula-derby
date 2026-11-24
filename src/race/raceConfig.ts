@@ -37,6 +37,8 @@ export const RACE_CONFIG = {
   accelBase: 3.6,
   accelPerStat: 0.24,
   brakeDecel: 12,
+  /** ペースを落とした時、目標の巡航速度まで落としていく減速度（m/s²） */
+  paceEaseDecel: 2.0,
   /** 何も押していない時の減速 */
   coastDecel: 0.6,
   /** 最高速度を上回っている時（ムチ切れ・スタミナ切れ）に落ちていく減速度 */
@@ -60,7 +62,8 @@ export const RACE_CONFIG = {
   contactSideSpeed: 1.0,
   /** 後ろから追突した時の速度差（m/s）がこれ以上なら追突した側にペナルティ */
   contactRearSpeed: 2.0,
-  contactPenaltySeconds: 10,
+  /** 通常の接触のペナルティ（秒）。落馬させた時は STOP & GO（stopGoSeconds） */
+  contactPenaltySeconds: 2,
   /** 同じ 2 頭の接触で続けてペナルティを出さない間隔（秒） */
   contactCooldown: 4,
   /** 接触・押し出しの後この秒数以内に相手がラチに衝突したら「落馬させた」と判定 */
@@ -100,8 +103,8 @@ export const RACE_CONFIG = {
   /** 消耗全体にかける倍率。最終ラップの直線でムチを打てるだけ残るよう、以前（1.0）より軽くしている */
   staminaDrainScale: 0.7,
   /** スタミナがこの値を下回ると最高速度が落ち始める */
-  staminaTiredThreshold: 30,
-  staminaTiredPenalty: 0.2,
+  staminaTiredThreshold: 15,
+  staminaTiredPenalty: 0.15,
   /** AI が最後の直線のムチ用に温存しておくスタミナ */
   aiStaminaReserve: 28,
 
@@ -146,9 +149,10 @@ export const RACE_CONFIG = {
   pitApproachDistance: 140,
   pitApproachSteerRate: 6,
   pitLaneSteerRate: 12,
-  /** 蹄鉄交換の作業時間 = base - 騎手の戦略値 × perStat（秒） */
-  pitWorkBase: 4.5,
-  pitWorkPerStat: 0.25,
+  /** 蹄鉄交換の作業時間 = base - ピットクルーの腕 × pitCrewPerPoint - 騎手の戦略値 × perStat（秒）。クルー 5〜9 で約 3.2〜2.4 秒 */
+  pitWorkBase: 4.6,
+  pitCrewPerPoint: 0.22,
+  pitWorkPerStat: 0.05,
   /** ピット停止中のスタミナ回復（/秒） */
   pitStaminaRecover: 3,
 

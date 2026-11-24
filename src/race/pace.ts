@@ -4,7 +4,7 @@ import type { HorseControls, RaceHorse } from './RaceHorse';
 
 /**
  * 目標速度に向けて自動で加速・抑えるための操作を作る（プレイヤーの自動前進と AI で共通）。
- * 目標を上回った時は強くブレーキをかけず、惰性でゆっくり目標に戻す（ムチで伸びた分が生きる）。
+ * 目標を上回った時は強くブレーキをかけず、2m/s² でゆっくり目標に戻す（ムチの効き目がある間は惰性で伸びを残す）。
  */
 export function cruiseControls(h: RaceHorse, targetSpeed: number, steer: number, whip: boolean): HorseControls {
   return {
@@ -12,6 +12,7 @@ export function cruiseControls(h: RaceHorse, targetSpeed: number, steer: number,
     brake: h.speed > targetSpeed + 2.5,
     steer,
     whip,
+    targetSpeed,
   };
 }
 

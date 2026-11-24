@@ -1,6 +1,7 @@
 import type { CourseTrack } from '../course/CourseTrack';
 import { HORSESHOES, HORSESHOE_ORDER, MAX_WEAR_PENALTY, type HorseshoeType, type TrackCondition } from '../data/horseshoes';
-import type { EntryData } from '../data/roster';
+import { constructorOf, type EntryData } from '../data/roster';
+import { RUNNING_STYLES } from '../data/runningStyles';
 import { PACE_LEVELS, RACE_CONFIG as C, type PaceLevel } from './raceConfig';
 
 /** 発馬の結果 */
@@ -13,6 +14,8 @@ export interface HorseControls {
   /** -1 = 左（外側）, +1 = 右（内側） */
   steer: number;
   whip: boolean;
+  /** 目指している巡航速度（m/s）。上回っている時はゆっくり（2m/s²）落として合わせる。省略時は惰性 */
+  targetSpeed?: number;
 }
 
 export const NO_CONTROLS: HorseControls = { accelerate: false, brake: false, steer: 0, whip: false };
@@ -89,6 +92,13 @@ export class RaceHorse {
   lastHitAt = -Infinity;
   /** 最後の接触ペナルティ（相手を落馬させた時に STOP & GO へ置き換える） */
   lastContactPenalty: { victim: RaceHorse; at: number } | null = null;
+
+  // --- リザルト用の計測（次のフェーズのリザルト画面で使う） ---
+  /** 単勝オッズ（倍）と人気順（1 = 1 番人気）。レース前に Race が決める */
+  odds = 0;
+  popularity = 0;
+  /** 追い抜いた回数（コース上で前の馬を抜いた回数。ピットで順位が入れ替わった分は数えない） */
+  overtakes = 0;
   /** ゴール板の通過回数 */
   lineCrossings = 0;
   /** 規定周回を走り終えた */
@@ -193,6 +203,7 @@ export class RaceHorse {
     this.lastHitBy = null;
     this.lastHitAt = -Infinity;
     this.lastContactPenalty = null;
+    this.overtakes = 0;
     this.distance = 0;
     this.startedBehindLine = this.track.diff(this.s, this.track.def.finishS) < 0;
   }
@@ -228,6 +239,21 @@ export class RaceHorse {
 
   get inPit(): boolean {
     return this.pitPhase === 'lane' || this.pitPhase === 'stopped';
+  }
+
+  /** 脚質の性能 */
+  get style() {
+    return RUNNING_STYLES[this.entry.horse.style];
+  }
+
+  /** ファステストラップ（最速の周回タイムと、それが何周目か）。まだ 1 周も走っていなければ null */
+  get fastestLap(): { time: number; lap: number } | null {
+    if (this.lapTimes.length === 0) return null;
+    let best = 0;
+    this.lapTimes.forEach((t, i) => {
+      if (t < this.lapTimes[best]) best = i;
+    });
+    return { time: this.lapTimes[best], lap: best + 1 };
   }
 
   private defaultNextShoe(): HorseshoeType {
@@ -288,7 +314,8 @@ export class RaceHorse {
     }
     const slopeEffect = C.slopeEffectBase - st.power * C.slopeEffectPerStat;
     top *= Math.min(1.15, Math.max(0.8, 1 - this.track.slopeAt(this.s) * slopeEffect));
-    if (this.whipBoost > 0) top *= 1 + (C.whipBoostBase + st.intelligence * C.whipBoostPerStat) * this.whipPower;
+    // ムチ：脚質（差し・追込ほど伸びる）と疲れ具合で効きが変わる
+    if (this.whipBoost > 0) top *= 1 + (C.whipBoostBase + st.intelligence * C.whipBoostPerStat) * this.whipPower * this.style.whipPower;
     // 荒れた馬場：柔らかい蹄鉄ほど大きく減速（ピットレーンは対象外）
     if (this.pitPhase !== 'lane') top *= 1 - this.groundWear * C.roughPenalty[this.shoe];
     // スリップストリーム：前の馬の風よけで +3km/h
@@ -375,7 +402,7 @@ export class RaceHorse {
       this.stamina = Math.max(0, this.stamina - C.whipStaminaCost);
       this.whipsThisLap++;
       // 叩いた瞬間にグッと伸びる
-      this.speed += C.whipImpulse * this.whipPower;
+      this.speed += C.whipImpulse * this.whipPower * this.style.whipPower;
       // 1 周 5 回目以降のムチは 1 回ごとに +5 秒
       if (this.whipsThisLap >= C.whipPenaltyCount) {
         this.penaltySeconds += C.whipPenaltySeconds;
@@ -396,7 +423,7 @@ export class RaceHorse {
     }
 
     let accel = C.accelBase + st.power * C.accelPerStat;
-    if (this.whipBoost > 0) accel *= 1 + (C.whipAccelMultiplier - 1) * this.whipPower;
+    if (this.whipBoost > 0) accel *= 1 + (C.whipAccelMultiplier - 1) * this.whipPower * this.style.whipPower;
     if (this.startBoost > 0) accel *= C.rocketAccelMultiplier;
     if (!canRace) {
       // スタート前は停止、ゴール後はキャンター程度までゆっくり落とす
@@ -407,7 +434,9 @@ export class RaceHorse {
     } else if (c.brake) {
       this.speed -= C.brakeDecel * dt;
     } else {
-      this.speed -= C.coastDecel * dt;
+      // ペースを落とした時は目標の巡航速度までゆっくり下げる（ムチの効き目がある間は惰性で伸びを残す）
+      const easing = c.targetSpeed !== undefined && this.whipBoost <= 0 && this.speed > c.targetSpeed + 0.3;
+      this.speed -= (easing ? C.paceEaseDecel : C.coastDecel) * dt;
     }
     if (this.speed > cap) {
       const decel = this.pitPhase === 'lane' ? C.pitLimiterDecel : C.overSpeedDecel;
@@ -425,7 +454,9 @@ export class RaceHorse {
       const pace = PACE_LEVELS[this.paceLevel];
       if (rate > 0) {
         // スリップストリーム中は風よけで消耗が大きく減る
-        rate *= pace.drain * C.staminaDrainScale * (1 - C.slipstreamDrainCut * this.slipstream);
+        // 脚質：逃げ・先行はハイペースでも消耗が少なく、差し・追込は道中に消耗しやすい
+        const styleDrain = this.paceLevel === 'high' ? this.style.highPaceDrain : this.style.cruiseDrain;
+        rate *= pace.drain * styleDrain * C.staminaDrainScale * (1 - C.slipstreamDrainCut * this.slipstream);
       } else rate = Math.max(-C.staminaRecoverMax * pace.recover, rate * 0.5 * pace.recover);
       this.stamina = Math.min(100, Math.max(0, this.stamina - rate * dt));
     }
@@ -502,7 +533,9 @@ export class RaceHorse {
       this.pitPhase = 'stopped';
       // STOP & GO なら作業なしで決められた時間だけ停止。それ以外は蹄鉄交換
       this.servingStopGo = this.stopGoPending;
-      this.pitTimer = this.servingStopGo ? C.stopGoSeconds : C.pitWorkBase - this.entry.jockey.strategy * C.pitWorkPerStat;
+      // 作業時間はコンストラクターのピットクルーの腕（と騎手の戦略値を少し）で決まる
+      const work = C.pitWorkBase - constructorOf(this.entry).pitCrew * C.pitCrewPerPoint - this.entry.jockey.strategy * C.pitWorkPerStat;
+      this.pitTimer = this.servingStopGo ? C.stopGoSeconds : work;
     }
   }
 }

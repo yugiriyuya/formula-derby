@@ -25,6 +25,30 @@ export interface RaceIncident {
   at: number;
 }
 
+/** リザルト画面の 1 行（次のフェーズで表示する） */
+export interface RaceResultRow {
+  /** 着順（ゴール前は途中順位、落馬は null） */
+  position: number | null;
+  status: 'FINISHED' | 'RUNNING' | 'PIT RETURN';
+  postNumber: number;
+  horseName: string;
+  jockeyName: string;
+  constructorId: string;
+  /** 単勝オッズ（倍）と人気順 */
+  odds: number;
+  popularity: number;
+  /** ペナルティ込みのタイム（秒）。ゴール前・落馬は null */
+  time: number | null;
+  penaltySeconds: number;
+  /** ファステストラップ（秒）と何周目か。レース全体の最速なら isFastestLap */
+  fastestLap: number | null;
+  fastestLapNumber: number | null;
+  isFastestLap: boolean;
+  /** 追い抜き回数 */
+  overtakes: number;
+  pitStops: number;
+}
+
 /** スタートゲートの 1 枠 */
 export interface GateSlot {
   /** 枠番（1 = 最内） */
@@ -162,6 +186,7 @@ export class Race {
     for (const h of this.horses) this.splits.set(h, []);
     this.standings = [...this.horses];
     this.updateStandings();
+    this.setOdds();
   }
 
   /** 枠番 1（最内）から外へ、外枠ほど少しずつ後ろに下がる斜めのゲート */
@@ -251,6 +276,7 @@ export class Race {
       time: this.time,
       wearAt: (s, lateral) => this.wearAt(s, lateral),
       safety: this.safety,
+      packProgress: this.packProgress(),
     };
     for (const h of this.horses) {
       // ゲートを出るまでは真っすぐ走る（隣の枠にぶつからないように）
@@ -263,12 +289,95 @@ export class Race {
     this.checkRailCrashes();
     this.trampleTurf();
     this.recordSplits();
+    const before = new Map(this.standings.map((h, i) => [h, i]));
     this.updateStandings();
+    this.countOvertakes(before);
   }
 
   /** コース上を走っている馬（落馬・ゴール・ピットレーンの馬を除く）を順位順に */
   private runningField(): RaceHorse[] {
     return this.standings.filter((h) => !h.retired && !h.finished && !h.inPit);
+  }
+
+  /** 馬群の中心（コース上を走っている馬の進み具合の中央値）。AI が馬群に合わせてペースを調整するのに使う */
+  private packProgress(): number {
+    const f = this.runningField();
+    if (f.length === 0) return 0;
+    return f[Math.floor(f.length / 2)].progress;
+  }
+
+  /**
+   * 追い抜きを数える：前のフレームより順位が上がった馬が、コース上で走っている馬を抜いた分だけ。
+   * ピット・落馬・ゴールで順位が入れ替わった分と、スタート直後（3 秒）は数えない。
+   */
+  private countOvertakes(before: Map<RaceHorse, number>) {
+    if (this.phase !== 'running' || this.time < 3) return;
+    const racing = (h: RaceHorse) => !h.inPit && !h.retired && !h.finished && h.pitPhase !== 'approach';
+    this.standings.forEach((h, now) => {
+      const was = before.get(h)!;
+      if (now >= was || !racing(h)) return;
+      for (const o of this.standings) {
+        if (o === h || !racing(o)) continue;
+        // 前は o が上、今は h が上 → h が o を抜いた
+        if (before.get(o)! < was && this.standings.indexOf(o) > now) h.overtakes++;
+      }
+    });
+  }
+
+  /**
+   * 単勝オッズと人気を決める（レース前）。能力値と騎手の戦略値から強さを出し、勝つ確率に換算する。
+   * 控除率 20%（払戻 80%）でオッズにする。毎レース少しだけ人気が揺れる。
+   */
+  private setOdds() {
+    const strength = this.horses.map((h) => {
+      const st = h.entry.horse.stats;
+      const r = st.speed * 1.0 + st.stamina * 0.55 + st.power * 0.45 + st.intelligence * 0.35 + h.entry.jockey.strategy * 0.3;
+      return r + (Math.random() - 0.5) * 0.8;
+    });
+    const weights = strength.map((r) => Math.exp(r / 1.1));
+    const total = weights.reduce((a, b) => a + b, 0);
+    this.horses.forEach((h, i) => {
+      const p = weights[i] / total;
+      h.odds = Math.max(1.1, Math.round((0.8 / p) * 10) / 10);
+    });
+    [...this.horses].sort((a, b) => a.odds - b.odds).forEach((h, i) => (h.popularity = i + 1));
+  }
+
+  /**
+   * リザルト画面用のデータ（着順 → 途中順位 → 落馬の順）。次のフェーズでこれを表示する。
+   */
+  results(): RaceResultRow[] {
+    const fastest = this.fastestLapHolder();
+    return this.standings.map((h) => {
+      const fl = h.fastestLap;
+      return {
+        position: h.retired ? null : (h.finishPosition ?? this.positionOf(h)),
+        status: h.retired ? 'PIT RETURN' : h.finished ? 'FINISHED' : 'RUNNING',
+        postNumber: h.postNumber,
+        horseName: h.entry.horse.name,
+        jockeyName: h.entry.jockey.name,
+        constructorId: h.entry.constructorId,
+        odds: h.odds,
+        popularity: h.popularity,
+        time: this.correctedTime(h),
+        penaltySeconds: h.penaltySeconds,
+        fastestLap: fl?.time ?? null,
+        fastestLapNumber: fl?.lap ?? null,
+        isFastestLap: h === fastest,
+        overtakes: h.overtakes,
+        pitStops: h.pitCount,
+      };
+    });
+  }
+
+  /** レース全体のファステストラップを出した馬 */
+  fastestLapHolder(): RaceHorse | null {
+    let best: RaceHorse | null = null;
+    for (const h of this.horses) {
+      const fl = h.fastestLap;
+      if (fl && (!best || fl.time < best.fastestLap!.time)) best = h;
+    }
+    return best;
   }
 
   /** 出来事を記録して画面上部に警告を出す。注目している馬なら画面中央にも赤く出す */
@@ -334,7 +443,7 @@ export class Race {
   private crash(h: RaceHorse) {
     const C = RACE_CONFIG;
     h.retire(this.time);
-    this.report(h, `落馬 — ${h.postNumber}番 ${h.entry.horse.name} RETIRED`);
+    this.report(h, `落馬 — ${h.postNumber}番 ${h.entry.horse.name} PIT RETURN`);
     // 接触・押し出しで落馬させた馬：STOP & GO（直前の接触ペナルティ +10s はこれに置き換える）
     const by = h.lastHitBy;
     if (by && !by.retired && this.clock - h.lastHitAt < C.crashBlameWindow) {

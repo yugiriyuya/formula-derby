@@ -22,6 +22,7 @@ import { RaceHud } from './ui/RaceHud';
 import { StandingsPanel } from './ui/StandingsPanel';
 import { Minimap } from './ui/Minimap';
 import { StartGate } from './scene/StartGate';
+import { TurfParticles } from './scene/TurfParticles';
 
 /**
  * 確認用 URL パラメーター
@@ -102,6 +103,9 @@ scene.add(startGate.root);
 const horseModels = new Map(race.horses.map((h) => [h, new HorseModel(lookOfEntry(h.entry))] as const));
 for (const m of horseModels.values()) scene.add(m.root);
 // 芦毛のセーフティホース（出動中だけ表示）
+// 荒れた芝を走る時に蹄から舞う土煙・芝片
+const turfParticles = new TurfParticles();
+scene.add(turfParticles.mesh);
 const safetyModel = HorseModel.safetyHorse();
 safetyModel.root.visible = false;
 scene.add(safetyModel.root);
@@ -203,6 +207,7 @@ const watchAfterRetire = () => {
 const restartRace = () => {
   race.restart();
   startGate.reset();
+  turfParticles.clear();
   // 落馬で観戦に切り替わっていたら、シンプルレースに戻す
   if (chosenMode === 'race' && appMode === 'spectate' && race.player) {
     applyModeUi('race');
@@ -374,6 +379,14 @@ renderer.setAnimationLoop((time) => {
   if (appMode === 'race' && race.player?.retired && race.time - race.player.retireTime > 2.5) watchAfterRetire();
 
   for (const [h, model] of horseModels) model.sync(h, track, world.topAt, dt);
+  // 荒れた芝の上では蹄から土煙・芝片が舞う
+  if (race.phase === 'running') {
+    for (const [h, model] of horseModels) {
+      if (h.inPit || h.retired) continue;
+      turfParticles.emit(h, model.root.position, track.frameAt(h.s, h.lateral).dir, h.speed, h.groundWear, dt);
+    }
+  }
+  turfParticles.update(dt);
   safetyModel.root.visible = race.safety.visible;
   if (race.safety.visible) safetyModel.sync(race.safety, track, world.topAt, dt);
   startGate.update(dt, race);

@@ -11,8 +11,13 @@ const DUEL_RANGE_M = 10;
 const LOOK_AHEAD_M = 12;
 /** 並走・追い越しに必要な横の間隔（m） */
 const PASS_GAP_M = 2.2;
-/** ラストスパートを始める残り距離（m） */
-const SPURT_M = 800;
+/** 2 列の馬群：1 列目（ラチ沿い）と 2 列目の、ラチからの距離（m） */
+const LANE_RAIL_M = 1.8;
+const LANE_SECOND_M = 3.6;
+/** 馬群の中心から 1m 離れるごとのペースの補正（前にいれば抑え、後ろなら押す） */
+const PACK_PULL_PER_M = 1 / 220;
+const PACK_PULL_MAX_SLOW = 0.1;
+const PACK_PULL_MAX_PUSH = 0.06;
 
 export interface AIContext {
   horses: readonly RaceHorse[];
@@ -23,15 +28,20 @@ export interface AIContext {
   wearAt: (s: number, lateral: number) => number;
   /** セーフティホース（出動中は追い越し禁止・1 列で走る・ムチを使わない） */
   safety: SafetyHorse;
+  /** 走っている馬群の中心（進み具合の中央値, ブロック） */
+  packProgress: number;
 }
 
 /**
  * AI 騎手。プレイヤーと同じ HorseControls を毎フレーム作って馬を動かす。
- *  - ペース：スタミナ残量と残り距離から ハイペース／標準／折り合い を選び、最終盤はスパート
- *  - ムチ：最終周のホームストレッチは連打、追い比べでは競りかける（1 周 4 回までに抑えてペナルティを避ける）
- *  - 進路：コーナーでは内ラチ寄り、直線では各騎手の好みの位置。前が詰まったら空いている側へ
+ *  - ペース：スタミナ残量と残り距離から ハイペース／標準／折り合い を選ぶ。
+ *            さらに馬群の中心との位置関係で補正（前に出すぎたら抑え、離されたら押す）して接戦を保つ。
+ *            位置取りは脚質で変わる（逃げは前、追込は後ろ）。最終盤は脚質ごとの距離からスパート
+ *  - 進路：ラチ沿いの 1 列目か、そのすぐ外の 2 列目を走る（2 列の馬群）。抜く時だけ外へ持ち出す
+ *  - ムチ：最終周のホームストレッチは連打、追い比べでは競りかける。
+ *          ふだんは 1 周 4 回までに抑えるが、攻めすぎる騎手は 5 回以上叩いてペナルティを受けることがある
  *  - ピット：レース中に 1 回、予定した周の終わりにピットインして蹄鉄を替える
- * 騎手の戦略値（strategy）が高いほど、ペース配分・進路取りが上手い。
+ * 騎手の戦略値（strategy）が高いほど、ペース配分・進路取りが上手く、ムチの叩きすぎも少ない。
  */
 export class AIController {
   /** この周回を走り終える直前（4コーナー出口のピット入口）でピットに入る */
@@ -44,6 +54,8 @@ export class AIController {
   /** 荒れを避けて選んだ今のライン（ブロック）と、選び直すまでの時間 */
   private cleanLine = 0;
   private lineTimer = 0;
+  /** 1 周に叩くムチの上限（ふつうは 4 = ペナルティの手前。攻めすぎる騎手は 5〜6） */
+  whipLimit = C.whipPenaltyCount - 1;
 
   constructor(readonly horse: RaceHorse) {}
 
@@ -59,16 +71,17 @@ export class AIController {
     const mpb = track.def.metersPerBlock;
     const half = track.def.trackWidth / 2;
     const sensitivity = C.roughPenalty[h.shoe] / C.roughPenalty.SOFT;
-    // グリーンベルト（コースの端から 1.3m。ラチに触れないだけの余裕を残す）
+    // グリーンベルト（コースの端から 1.3m。ラチに触れないだけの余裕を残す）と、いつもの列から外へ 2.5m まで。
+    // それ以上外へは行かない（馬群がバラけないように）
     const candidates = [half - 1.3 / mpb, this.preferredLateral];
-    for (let k = 1; k <= 4; k++) candidates.push(this.preferredLateral - (k * 2.5) / mpb);
+    candidates.push(this.preferredLateral - 2.5 / mpb);
     const score = (lat: number) => {
       let wear = 0;
       for (let d = 5; d <= 40; d += 7) wear += ctx.wearAt(h.s + d / mpb, lat);
       wear /= 6;
-      // 外を回るロス：ラチから 1m 離れるごとに少しずつ不利
+      // 外を回るロス・馬群から離れる不利：いつもの列から 1m 外へ出るごとに不利
       const outsideM = (this.preferredLateral - lat) * mpb;
-      return wear * 10 * sensitivity + Math.max(0, outsideM) * 0.04;
+      return wear * 6 * sensitivity + Math.max(0, outsideM) * 0.12;
     };
     let best = this.cleanLine || this.preferredLateral;
     let bestScore = score(best) - 0.05; // 今のラインを少し優先
@@ -93,10 +106,14 @@ export class AIController {
     let lap = first + Math.floor(rand() * (last - first + 1));
     if (teammatePitLap !== null && lap === teammatePitLap && last > first) lap = lap === last ? lap - 1 : lap + 1;
     this.pitLap = laps >= 2 ? lap : 0;
-    // 基本は内ラチ沿い（距離が最短）。戦略値が高いほどラチぎりぎりを回る
-    const railGapM = 1.6 + rand() * 0.8 + (10 - strategy) * 0.08;
+    // 2 列の馬群：ラチ沿いの 1 列目か、そのすぐ外の 2 列目を受け持つ（半々）
+    const lane = rand() < 0.5 ? LANE_RAIL_M : LANE_SECOND_M;
+    const railGapM = lane + rand() * 0.6;
     this.preferredLateral = half - railGapM / this.horse.track.def.metersPerBlock;
     this.aggression = rand();
+    // 攻めすぎる騎手（戦略値が低いほど多い）は、最後の直線でムチを 5〜6 回叩いてペナルティを受ける
+    const overWhipChance = 0.05 + (10 - strategy) * 0.025;
+    this.whipLimit = rand() < overWhipChance ? C.whipPenaltyCount + (rand() < 0.3 ? 1 : 0) : C.whipPenaltyCount - 1;
     this.targetLateral = this.horse.lateral;
     this.whipTimer = 0;
     this.cleanLine = this.preferredLateral;
@@ -117,8 +134,10 @@ export class AIController {
 
     // --- 目標ペース ---
     const top = h.topSpeed(ctx.condition);
+    const style = h.style;
     const remainingM = (ctx.laps * track.length - h.progress) * mpb;
-    const finalSpurt = remainingM < SPURT_M;
+    // スパートを始める距離は脚質で変わる（差し・追込ほど早めに仕掛ける）
+    const finalSpurt = remainingM < style.aiSpurt;
     // ペースはプレイヤーと同じ 3 段階（スタミナの減り方もペースで変わる）
     let pace: PaceLevel;
     let ratio: number;
@@ -129,12 +148,21 @@ export class AIController {
       pace = 'high';
       ratio = h.stamina > 8 ? 1.05 : 0.97;
     } else {
-      // 最後の直線のムチ用のスタミナ（aiStaminaReserve）は温存し、残りを残り周回に割り振る。
+      // 最後の直線のムチ用のスタミナ（aiStaminaReserve＋脚質ごとの上乗せ）は温存し、残りを残り周回に割り振る。
       // 1 周あたりの予算：ハイペースは約 23、標準は約 11 消耗する
       const lapsLeft = remainingM / (track.length * mpb);
-      const budget = Math.max(0, h.stamina - C.aiStaminaReserve) / Math.max(0.5, lapsLeft);
-      pace = budget > 23 ? 'high' : budget > 11 ? 'normal' : 'relaxed';
-      ratio = PACE_LEVELS[pace].ratio + (this.aggression - 0.5) * 0.03;
+      const reserve = C.aiStaminaReserve + style.aiExtraReserve;
+      const budget = Math.max(0, h.stamina - reserve) / Math.max(0.5, lapsLeft);
+      const maxPace: PaceLevel = budget > 23 ? 'high' : budget > 11 ? 'normal' : 'relaxed';
+      ratio = PACE_LEVELS[maxPace].ratio + (this.aggression - 0.5) * 0.02;
+      // 馬群に合わせる：脚質ごとの「いたい位置」（馬群の中心から前後何 m）より前なら抑え、後ろなら押す。
+      // 押す時もスタミナの予算で決まるペース以上にはしない（最終盤の追い比べの余力を残す）
+      const offsetM = (h.progress - ctx.packProgress) * mpb - style.aiPosition;
+      const pull = offsetM > 0 ? -Math.min(PACK_PULL_MAX_SLOW, offsetM * PACK_PULL_PER_M) : Math.min(PACK_PULL_MAX_PUSH, -offsetM * PACK_PULL_PER_M);
+      // 大きく離された時（20m 以上）はスタミナを使ってでも追いつく
+      const cap = offsetM < -20 || maxPace !== 'relaxed' ? 1.0 : PACE_LEVELS.normal.ratio;
+      ratio = Math.min(ratio + pull, cap);
+      pace = ratio >= 0.985 ? 'high' : ratio <= 0.88 ? 'relaxed' : 'normal';
     }
     h.paceLevel = pace;
     let targetSpeed = top * Math.min(1.05, ratio);
@@ -177,8 +205,9 @@ export class AIController {
       if (aheadLat !== null) wanted = aheadLat;
     } else if (!h.finished && h.pitPhase === 'none') {
       const blocker = ahead(this.targetLateral, 0, look);
-      // 前の馬より速く走りたい時だけ追い越しを狙う
-      const wantsToPass = blocker !== undefined && targetSpeed > blocker.speed + 0.3;
+      // 前の馬よりはっきり速く走りたい時だけ追い越しを狙う（道中は抜き合いを減らして馬群を保つ。最終盤は積極的に）
+      const passMargin = finalSpurt ? 0.25 : 0.7;
+      const wantsToPass = blocker !== undefined && targetSpeed > blocker.speed + passMargin;
       if (blocker && wantsToPass) {
         // 空いている側へ持ち出す（内が空いていれば内、なければ外）
         const limit = h.crashLimit - 1 / mpb;
@@ -224,7 +253,12 @@ export class AIController {
         const across = (o.lateral - h.lateral) * sideDir * mpb;
         return along < 3.2 && across > 0 && across < 1.9;
       });
-      if (blockedSide) this.targetLateral = h.lateral;
+      if (blockedSide) {
+        this.targetLateral = h.lateral;
+        // 内へ入りたいのに横に馬がいる：少し控えて、その馬の後ろに入る（馬群に収まる）
+        const wantsInside = sideDir > 0 && (wanted - h.lateral) * mpb > 1.5;
+        if (wantsInside && !finalSpurt && !ctx.safety.restricting) targetSpeed = Math.max(0, targetSpeed - 0.5);
+      }
     }
     const latError = this.targetLateral - h.lateral;
     // 横移動はふだん穏やかに（急な進路変更は接触の元）。ラチに近い時だけ強く戻す
@@ -236,7 +270,7 @@ export class AIController {
   }
 
   /**
-   * ムチを入れるか。1 周 4 回まで（5 回目からペナルティ）に抑える。
+   * ムチを入れるか。1 周 whipLimit 回まで（ふつうは 4 回 = ペナルティの手前。攻めすぎる騎手は 5〜6 回）。
    *  - 最終周のホームストレッチ：効き目が切れる直前に次を入れて、ゴールまで追い続ける
    *  - どの周でもホームストレッチの追い比べ：横・すぐ前にライバルがいて余力があれば競りかける
    *  - 最終盤（残り 800m〜直線入口）：要所で入れて位置を上げる
@@ -244,7 +278,7 @@ export class AIController {
   private decideWhip(dt: number, ctx: AIContext, finalSpurt: boolean): boolean {
     const h = this.horse;
     this.whipTimer -= dt;
-    if (h.finished || ctx.safety.restricting || h.pitPhase !== 'none' || h.whipsThisLap >= C.whipPenaltyCount - 1 || this.whipTimer > 0) {
+    if (h.finished || ctx.safety.restricting || h.pitPhase !== 'none' || h.whipsThisLap >= this.whipLimit || this.whipTimer > 0) {
       return false;
     }
     const track = h.track;

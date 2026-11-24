@@ -3,6 +3,9 @@ import type { TurfWear } from '../race/TurfWear';
 import type { WorldBounds } from './courseWorld';
 
 /** 芝の 1 マス（上面の左下の角と高さ、刈り込み模様の濃さ） */
+/** 荒れによる芝の色の変化をどれだけ出すか（1 = 以前の見た目。今は約 1/3 に抑えてパーティクルで見せる） */
+const TURF_COLOR_AMOUNT = 0.33;
+
 export interface TurfCell {
   ix: number;
   iz: number;
@@ -76,13 +79,15 @@ export class TurfSurface {
           `#include <map_fragment>
           diffuseColor.rgb *= vTurfShade;
           {
-            // テクスチャの明暗（細かな模様）は残したまま、緑 → 黄土色 → 土色へ
+            // テクスチャの明暗（細かな模様）は残したまま、緑 → 黄土色 → 土色へ。
+            // ただし色の変化は控えめに（本来の変化量の ${TURF_COLOR_AMOUNT} だけ）。荒れは土煙・芝片のパーティクルで見せる
             float w = clamp(vTurfWear, 0.0, 1.0);
             float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
             vec3 worn = vec3(0.30, 0.26, 0.07) * (0.55 + 1.6 * lum);
             vec3 dirt = vec3(0.26, 0.14, 0.06) * (0.55 + 1.6 * lum);
             vec3 c = mix(diffuseColor.rgb, worn, smoothstep(0.02, 0.4, w));
-            diffuseColor.rgb = mix(c, dirt, smoothstep(0.35, 0.9, w));
+            c = mix(c, dirt, smoothstep(0.35, 0.9, w));
+            diffuseColor.rgb = mix(diffuseColor.rgb, c, ${TURF_COLOR_AMOUNT.toFixed(3)});
           }`,
         );
     };
