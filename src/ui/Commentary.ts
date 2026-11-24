@@ -87,7 +87,8 @@ export class Commentary {
       case 'start': {
         const rocket = race.horses.filter((x) => x.startResult === 'rocket');
         const late = race.horses.filter((x) => x.startResult === 'late');
-        let s = pick(['スタートしました！各馬きれいなスタート！', 'ゲートが開いた！12頭一斉にスタート！', '今、スタートが切られました！']);
+        let s = pick(['スタートしました！各馬きれいなスタート！', `ゲートが開いた！${race.horses.length}頭一斉にスタート！`, '今、スタートが切られました！']);
+        if (race.weather === 'rain') s = `雨の${race.track.def.shortName}、${s}`;
         if (rocket.length) s += `　${nm(rocket[0])}、好スタート！`;
         if (late.length) s += `　${nm(late[0])}は出遅れた！`;
         return s;

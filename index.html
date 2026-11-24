@@ -64,7 +64,7 @@
 
     <!-- 右上：観戦モードの操作 -->
     <div id="spectator-panel">
-      <div class="title"><strong>観戦モード</strong> — 全12頭 AI</div>
+      <div class="title"><strong>観戦モード</strong> — 全頭 AI</div>
       <div class="focus-row">
         <button id="sp-prev" title="1つ上の順位の馬（←）">◀</button>
         <span id="sp-focus">-</span>
@@ -102,6 +102,7 @@
         <span class="k">スタミナ</span>
         <div class="bar"><div id="h-stamina"></div></div>
       </div>
+      <div class="row weather"><span class="k">天候</span><b id="h-weather">晴れ</b><span class="k windk">風</span><span id="h-wind-arrow" class="wind-arrow">↑</span><small id="h-wind">-</small></div>
       <div class="row"><span class="k">ムチ</span><b id="h-whip">0 / 5</b><small>今周</small><b id="h-penalty" class="penalty"></b></div>
       <div class="row"><span id="h-slip" class="slip-badge">SLIPSTREAM</span><span id="h-rough" class="rough-badge"></span><span id="h-rail" class="rail-warn">ラチ接近！</span></div>
       <div class="row">
@@ -161,7 +162,27 @@
         <div class="result-buttons">
           <button id="result-replay">ゴール前リプレイ再生</button>
           <button id="result-retry">同じ条件で再レース</button>
+          <button id="result-series" class="series">シリーズ順位へ</button>
           <button id="result-title">タイトルへ戻る</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- シリーズ戦の順位（各レースの後と全10戦の後） -->
+    <div id="series-screen">
+      <div class="result-box">
+        <div class="result-head"><b id="series-title-main">SERIES</b><span id="series-sub"></span></div>
+        <div id="series-champion"></div>
+        <div class="result-body">
+          <div><div class="sec-title">コンストラクターズランキング</div><div id="series-teams"></div></div>
+          <div><div class="sec-title">馬（ドライバー）ランキング</div><div id="series-horses"></div></div>
+        </div>
+        <div id="series-rounds"></div>
+        <div class="q-note">ポイント：1着から 25-18-15-12-10-8-6-4-2-1、ファステストラップ +1（10着以内）。落馬（DNF）は 0。コンストラクターは所属2頭の合計。</div>
+        <div class="result-buttons">
+          <button id="series-next">次のレースへ</button>
+          <button id="series-back">リザルトに戻る</button>
+          <button id="series-title">タイトルへ戻る</button>
         </div>
       </div>
     </div>
@@ -174,7 +195,7 @@
           <div id="q-table"></div>
           <div id="q-teams"></div>
         </div>
-        <div class="q-note">※ 予選は全12頭を本戦と同じ物理・AI騎手で1頭ずつ走らせる高速シミュレーションです（自分の馬もAIが騎乗）。<br>
+        <div class="q-note">※ 予選は全頭を本戦と同じ物理・AI騎手で1頭ずつ走らせる高速シミュレーションです（自分の馬もAIが騎乗）。<br>
           1周目はウォームアップ、2周目のタイムで順位を決めます。予選順 = 枠順（ポールポジション = 1番・最内）。</div>
         <div class="result-buttons">
           <button id="q-start">決勝スタート</button>
@@ -188,7 +209,7 @@
     <div id="title-screen">
       <div class="title-box">
         <h1>Formula Derby</h1>
-        <p class="sub" id="title-sub">京都・芝外回り（右回り）・5周・12頭</p>
+        <p class="sub" id="title-sub">京都・芝外回り（右回り）・5周</p>
         <!-- レース設定（コース・周回数・予選） -->
         <div class="settings">
           <div class="set-row">
@@ -201,6 +222,21 @@
             <div class="opts">
               <button data-laps="5"><b>5周</b><small>スプリント</small></button>
               <button data-laps="20"><b>20周</b><small>本格戦（1〜2ストップ作戦）</small></button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="k">頭数</span>
+            <div class="opts">
+              <button data-field="12"><b>12頭</b><small>6チーム × 2頭（標準）</small></button>
+              <button data-field="16"><b>16頭</b><small>8チーム × 2頭（フルゲート）</small></button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="k">天候</span>
+            <div class="opts">
+              <button data-weather="sunny"><b>晴れ</b><small>良馬場</small></button>
+              <button data-weather="rain"><b>雨</b><small>重馬場・RAIN 蹄鉄が有利</small></button>
+              <button data-weather="random"><b>ランダム</b><small>コースの降りやすさで抽選</small></button>
             </div>
           </div>
           <div class="set-row">
@@ -218,8 +254,17 @@
           </button>
           <button id="btn-spectate">
             <b>観戦モード</b>
-            <small>全12頭を AI で観戦</small>
+            <small>全頭を AI で観戦</small>
           </button>
+        </div>
+        <!-- シリーズ戦（全10戦・コンストラクターズ選手権） -->
+        <div class="series-menu">
+          <div class="series-head"><b>シリーズ戦（全10戦）</b><small>10コースを順に転戦・ポイント制のコンストラクターズ選手権（周回数・予選は上の設定）</small></div>
+          <div class="series-buttons">
+            <button id="btn-series-race">新しく始める：騎乗</button>
+            <button id="btn-series-spectate">新しく始める：観戦</button>
+            <button id="btn-series-resume" class="resume"></button>
+          </div>
         </div>
       </div>
     </div>

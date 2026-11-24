@@ -1,6 +1,6 @@
 import type { CourseTrack } from '../course/CourseTrack';
-import type { TrackCondition } from '../data/horseshoes';
-import { CONSTRUCTORS, teammateIndex, type EntryData } from '../data/roster';
+import { bestShoe, type TrackCondition } from '../data/horseshoes';
+import { teammateIndex, teamsOf, type ConstructorData, type EntryData } from '../data/roster';
 import { AIController, type AIContext } from './AIController';
 import type { TurfWear } from './TurfWear';
 import { RACE_CONFIG, raceFormat, type RaceFormat } from './raceConfig';
@@ -9,6 +9,7 @@ import { SafetyHorse, type SafetyState } from './SafetyHorse';
 import { ReplayRecorder } from './ReplayRecorder';
 
 export type RacePhase = 'countdown' | 'running' | 'finished';
+export type Weather = 'sunny' | 'rain';
 
 /** HUD に一時的に出すお知らせ */
 export interface RaceMessage {
@@ -109,6 +110,10 @@ export class Race {
   private startClock = 0;
   private lightsOutAt = 0;
   condition: TrackCondition = 'good';
+  /** 天候（雨なら芝が湿って condition = heavy） */
+  weather: Weather = 'sunny';
+  /** 風（fromDeg = 吹いてくる方角, speed = m/s, x / z = 風が吹いていく向きの速度ベクトル） */
+  wind = { fromDeg: 0, speed: 0, x: 0, z: 0 };
   /** プレイヤーが操作する馬。観戦モードでは null（全頭 AI） */
   player: RaceHorse | null = null;
   /** カメラ・HUD が注目している馬（シンプルレースでは常にプレイヤーの馬） */
@@ -157,6 +162,8 @@ export class Race {
    * 同じ条件で再レースした時もこの並びを使う。
    */
   gridOrder: RaceHorse[] | null = null;
+  /** 出走しているコンストラクター（並び = ピットボックスの並び） */
+  readonly teams: ConstructorData[];
   /** 予選のタイムアタック用：AI はピットに入らない */
   noPitStops = false;
 
@@ -168,11 +175,13 @@ export class Race {
   ) {
     this.format = raceFormat(laps);
     this.safety = new SafetyHorse(track);
+    // ピットボックスは出走しているチームの数だけ（並びは CONSTRUCTORS の順）
+    this.teams = teamsOf(entries);
     for (const e of entries) {
-      const garageIndex = CONSTRUCTORS.findIndex((c) => c.id === e.constructorId);
+      const garageIndex = this.teams.findIndex((c) => c.id === e.constructorId);
       // 僚馬は同じ厩舎の前で、少し前後にずらして止まる
       const boxOffset = (teammateIndex(e) === 0 ? -1 : 1) * (3.5 / track.def.metersPerBlock);
-      const h = new RaceHorse(track, e, garageIndex, CONSTRUCTORS.length, boxOffset);
+      const h = new RaceHorse(track, e, garageIndex, this.teams.length, boxOffset);
       h.onCrossLine = (horse) => this.handleCrossLine(horse);
       h.onPitComplete = (horse, from, to) => {
         if (horse === this.focus) this.notify(`蹄鉄交換完了 ${from} → ${to}`, 2.5);
@@ -199,6 +208,26 @@ export class Race {
     this.restart();
   }
 
+  /** 天候を変える（次の restart から有効）。雨は重馬場：RAIN 以外の蹄鉄はグリップが落ちる */
+  setWeather(weather: Weather) {
+    this.weather = weather;
+    const dirt = this.track.def.surface === 'dirt';
+    this.condition = dirt ? (weather === 'rain' ? 'dirtHeavy' : 'dirt') : weather === 'rain' ? 'heavy' : 'good';
+  }
+
+  /** 風を変える。fromDeg = 風が吹いてくる方角（0 = 北 = -z, 90 = 東 = +x） */
+  setWind(fromDeg: number, speed: number) {
+    const rad = (fromDeg * Math.PI) / 180;
+    // 吹いてくる方角の逆向きへ吹く
+    this.wind = { fromDeg: ((fromDeg % 360) + 360) % 360, speed, x: -Math.sin(rad) * speed, z: Math.cos(rad) * speed };
+  }
+
+  /** 進行方向の風速（m/s。追い風が +） */
+  windAlongAt(s: number): number {
+    const d = this.track.frameAt(s).dir;
+    return this.wind.x * d.x + this.wind.z * d.z;
+  }
+
   /** 周回数を変える（次の restart から有効）。周回数に合わせて摩耗・スタミナを調整する */
   setLaps(laps: number) {
     this.laps = laps;
@@ -216,7 +245,7 @@ export class Race {
   assignGarages(garageOrder: readonly string[] | null) {
     for (const h of this.horses) {
       const i = garageOrder ? garageOrder.indexOf(h.entry.constructorId) : -1;
-      h.assignGarage(i >= 0 ? i : CONSTRUCTORS.findIndex((c) => c.id === h.entry.constructorId));
+      h.assignGarage(i >= 0 ? i : this.teams.findIndex((c) => c.id === h.entry.constructorId));
     }
   }
 
@@ -269,12 +298,19 @@ export class Race {
     // AI の作戦（ピットに入る周など）。僚馬同士は別の周にピットインする
     const pitLaps = new Map<string, number[]>();
     for (const [h, ai] of this.ai) {
-      ai.plan(this.laps, Math.random, pitLaps.get(h.entry.constructorId) ?? [], this.format);
+      ai.plan(this.laps, Math.random, pitLaps.get(h.entry.constructorId) ?? [], this.format, this.condition);
       if (this.noPitStops) {
         ai.pitLap = 0;
         ai.pitLaps = [];
       }
       pitLaps.set(h.entry.constructorId, ai.pitLaps);
+    }
+    // 雨の日・ダート：自分の馬は馬場に合う蹄鉄でスタート（次の蹄鉄も同じ。T キーで変えられる）
+    if (this.player && this.condition !== 'good') {
+      const shoe = bestShoe(this.condition);
+      this.player.startShoeOverride = shoe;
+      this.player.shoe = shoe;
+      this.player.nextShoe = shoe;
     }
     for (const h of this.horses) this.splits.set(h, []);
     this.standings = [...this.horses];
@@ -362,6 +398,7 @@ export class Race {
 
     this.detectSlipstream();
     this.readGround();
+    for (const h of this.horses) h.windAlong = h.inPit ? 0 : this.windAlongAt(h.s);
     const ctx: AIContext = {
       horses: this.horses,
       laps: this.laps,
@@ -702,7 +739,7 @@ export class Race {
     const wear = this.wear;
     if (!wear || this.phase === 'countdown') return;
     const half = this.track.def.trackWidth / 2;
-    const step = RACE_CONFIG.turfWearPerStep * this.format.turfWear;
+    const step = RACE_CONFIG.turfWearPerStep * this.format.turfWear * (this.weather === 'rain' ? RACE_CONFIG.rainTurfWear : 1);
     for (const h of this.horses) {
       if (h.inPit || h.retired || h.speed < 0.5 || Math.abs(h.lateral) > half) continue;
       const f = this.track.frameAt(h.s, h.lateral);

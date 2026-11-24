@@ -1,4 +1,4 @@
-import type { HorseshoeType, TrackCondition } from '../data/horseshoes';
+import { bestShoe, type HorseshoeType, type TrackCondition } from '../data/horseshoes';
 import { cruiseControls } from './pace';
 import { PACE_LEVELS, RACE_CONFIG as C, type PaceLevel, type RaceFormat } from './raceConfig';
 import type { HorseControls, RaceHorse } from './RaceHorse';
@@ -120,7 +120,7 @@ export class AIController {
   }
 
   /** レース開始時に作戦を決める */
-  plan(laps: number, rand: () => number, teammatePitLaps: readonly number[], format?: RaceFormat) {
+  plan(laps: number, rand: () => number, teammatePitLaps: readonly number[], format?: RaceFormat, condition: TrackCondition = 'good') {
     const half = this.horse.track.def.trackWidth / 2;
     const strategy = this.horse.entry.jockey.strategy;
     if (format && format.maxStops >= 2) {
@@ -135,6 +135,15 @@ export class AIController {
       this.pitLap = laps >= 2 ? lap : 0;
       this.pitLaps = this.pitLap > 0 ? [this.pitLap] : [];
       this.stints = [];
+    }
+    // 雨（重馬場）・ダート：ふつうは馬場に合う蹄鉄（雨はレイン、ダートはハード）で走り通す。
+    // ときどき合わない蹄鉄のまま出るギャンブルをする騎手もいる
+    if (condition !== 'good' && rand() >= C.aiDryGambleChance) {
+      const shoe = bestShoe(condition);
+      this.stints = this.stints.length ? this.stints.map(() => shoe as HorseshoeType) : [shoe, shoe, shoe];
+      this.horse.startShoeOverride = shoe;
+      this.horse.shoe = shoe;
+      this.horse.nextShoe = shoe;
     }
     // 2 列の馬群：ラチ沿いの 1 列目か、そのすぐ外の 2 列目を受け持つ（半々）
     const lane = rand() < 0.5 ? LANE_RAIL_M : LANE_SECOND_M;

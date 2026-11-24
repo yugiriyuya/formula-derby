@@ -27,7 +27,10 @@ export class TurfSurface {
   /** ワールドのマス番号 → このメッシュでの先頭の頂点番号（芝でないマスは -1） */
   private readonly vertexOf: Int32Array;
 
-  constructor(cells: TurfCell[], bounds: WorldBounds, texture: THREE.Texture) {
+  /**
+   * @param dirt ダートコース：砂の上面。荒れ（蹄跡）は黄土色ではなく、掘り返された濃い茶色の筋になる
+   */
+  constructor(cells: TurfCell[], bounds: WorldBounds, texture: THREE.Texture, dirt = false) {
     const width = bounds.maxX - bounds.minX;
     const depth = bounds.maxZ - bounds.minZ;
     this.vertexOf = new Int32Array(width * depth).fill(-1);
@@ -83,11 +86,11 @@ export class TurfSurface {
             // ただし色の変化は控えめに（本来の変化量の ${TURF_COLOR_AMOUNT} だけ）。荒れは土煙・芝片のパーティクルで見せる
             float w = clamp(vTurfWear, 0.0, 1.0);
             float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-            vec3 worn = vec3(0.30, 0.26, 0.07) * (0.55 + 1.6 * lum);
-            vec3 dirt = vec3(0.26, 0.14, 0.06) * (0.55 + 1.6 * lum);
+            vec3 worn = ${dirt ? 'vec3(0.34, 0.23, 0.14)' : 'vec3(0.30, 0.26, 0.07)'} * (0.55 + 1.6 * lum);
+            vec3 dirt = ${dirt ? 'vec3(0.22, 0.14, 0.08)' : 'vec3(0.26, 0.14, 0.06)'} * (0.55 + 1.6 * lum);
             vec3 c = mix(diffuseColor.rgb, worn, smoothstep(0.02, 0.4, w));
             c = mix(c, dirt, smoothstep(0.35, 0.9, w));
-            diffuseColor.rgb = mix(diffuseColor.rgb, c, ${TURF_COLOR_AMOUNT.toFixed(3)});
+            diffuseColor.rgb = mix(diffuseColor.rgb, c, ${dirt ? '0.6' : TURF_COLOR_AMOUNT.toFixed(3)});
           }`,
         );
     };

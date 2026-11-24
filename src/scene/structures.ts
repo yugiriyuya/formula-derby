@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CourseTrack, TrackFrame } from '../course/CourseTrack';
 import type { WorldBounds } from './courseWorld';
-import { CONSTRUCTORS } from '../data/roster';
+import { CONSTRUCTORS, type ConstructorData } from '../data/roster';
 
 type TopAt = (x: number, z: number) => number;
 
@@ -90,10 +90,10 @@ export interface GarageRow {
 }
 
 /** ピットレーン沿いの厩舎（ピットボックス）。コンストラクターごとに 1 棟。出口側が 1 番ピット */
-function buildGarages(track: CourseTrack, topAt: TopAt): { group: THREE.Group; row: GarageRow } {
+function buildGarages(track: CourseTrack, topAt: TopAt, teams: readonly ConstructorData[]): { group: THREE.Group; row: GarageRow } {
   const pit = track.def.pitLane;
   const group = new THREE.Group();
-  const count = CONSTRUCTORS.length;
+  const count = teams.length;
   const span = track.wrap(pit.garageEnd - pit.garageStart) / count;
   const depth = 8;
   const height = 5;
@@ -102,7 +102,7 @@ function buildGarages(track: CourseTrack, topAt: TopAt): { group: THREE.Group; r
   const openMat = lambert(0x3a2a1a);
   const teamMats: THREE.MeshLambertMaterial[] = [];
 
-  CONSTRUCTORS.forEach((c, i) => {
+  teams.forEach((c, i) => {
     // 馬が停止する位置（track.garageS）と同じ s に建てる
     const frame = track.frameAt(track.garageS(i, count), lateral);
     const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z), track.side);
@@ -125,7 +125,7 @@ function buildGarages(track: CourseTrack, topAt: TopAt): { group: THREE.Group; r
   });
   const row: GarageRow = {
     paint(order) {
-      CONSTRUCTORS.forEach((c, i) => {
+      teams.forEach((c, i) => {
         const id = order ? order[i] : c.id;
         const team = CONSTRUCTORS.find((t) => t.id === id) ?? c;
         teamMats[i].color.setHex(team.color);
@@ -164,7 +164,10 @@ function buildTrees(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): THRE
 
   // 外ラチのすぐ外にも木を並べ、横を流れる景色を増やす（スピード感）
   const spots: { p: THREE.Vector3; k: number }[] = [];
-  for (let tries = 0; tries < 30000 && spots.length < 400; tries++) {
+  // 木の量はコースごと（森の中のスパは多く、市街地は少なく）
+  const density = def.trees?.density ?? 1;
+  const maxTrees = Math.round(400 * density);
+  for (let tries = 0; tries < 30000 * Math.max(1, density) && spots.length < maxTrees; tries++) {
     const x = Math.floor(bounds.minX + 3 + rand() * (bounds.maxX - bounds.minX - 6)) + 0.5;
     const z = Math.floor(bounds.minZ + 3 + rand() * (bounds.maxZ - bounds.minZ - 6)) + 0.5;
     const { s, lateral } = track.project(x, z);
@@ -180,7 +183,7 @@ function buildTrees(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): THRE
   }
 
   const trunks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 4, 1), lambert(0x6b4a2b), spots.length);
-  const leaves = new THREE.InstancedMesh(new THREE.BoxGeometry(4, 4, 4), lambert(0x3f8f2f), spots.length);
+  const leaves = new THREE.InstancedMesh(new THREE.BoxGeometry(4, 4, 4), lambert(def.trees?.color ?? 0x3f8f2f), spots.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   spots.forEach(({ p, k }, i) => {
@@ -196,9 +199,14 @@ function buildTrees(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): THRE
   return g;
 }
 
-export function buildStructures(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): { group: THREE.Group; garages: GarageRow } {
+export function buildStructures(
+  track: CourseTrack,
+  topAt: TopAt,
+  bounds: WorldBounds,
+  teams: readonly ConstructorData[],
+): { group: THREE.Group; garages: GarageRow } {
   const g = new THREE.Group();
-  const garages = buildGarages(track, topAt);
+  const garages = buildGarages(track, topAt, teams);
   g.add(
     buildStands(track, topAt),
     garages.group,

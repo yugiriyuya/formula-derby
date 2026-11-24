@@ -3,14 +3,20 @@
  */
 export type LapsOption = 5 | 20;
 
+export type WeatherOption = 'sunny' | 'rain' | 'random';
+
 export interface RaceSettings {
   course: string;
   laps: LapsOption;
   qualifying: boolean;
+  /** 単発レースの天候（random = コースごとの雨の降りやすさで抽選） */
+  weather: WeatherOption;
+  /** 出走頭数（12 / 16） */
+  fieldSize: 12 | 16;
 }
 
 const KEY = 'formula-derby-settings';
-const DEFAULTS: RaceSettings = { course: 'kyoto-outer', laps: 5, qualifying: false };
+const DEFAULTS: RaceSettings = { course: 'kyoto-outer', laps: 5, qualifying: false, weather: 'sunny', fieldSize: 12 };
 
 export function loadSettings(): RaceSettings {
   try {
@@ -21,6 +27,8 @@ export function loadSettings(): RaceSettings {
       course: typeof v.course === 'string' ? v.course : DEFAULTS.course,
       laps: v.laps === 20 ? 20 : 5,
       qualifying: v.qualifying === true,
+      weather: v.weather === 'rain' || v.weather === 'random' ? v.weather : 'sunny',
+      fieldSize: v.fieldSize === 16 ? 16 : 12,
     };
   } catch {
     return { ...DEFAULTS };

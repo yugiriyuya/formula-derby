@@ -14,6 +14,12 @@ export function formatTime(sec: number): string {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 }
 
+/** 風が吹いてくる方角の名前（16 方位）。例：315 → 「北西の風」 */
+export function windName(fromDeg: number): string {
+  const names = ['北', '北北東', '北東', '東北東', '東', '東南東', '南東', '南南東', '南', '南南西', '南西', '西南西', '西', '西北西', '北西', '北北西'];
+  return `${names[Math.round((((fromDeg % 360) + 360) % 360) / 22.5) % 16]}の風`;
+}
+
 const formatOpt = (sec: number | null) => (sec === null ? '--:--.--' : formatTime(sec));
 
 /** 画面下の最小限のレース HUD と、中央のメッセージ */
@@ -46,6 +52,9 @@ export class RaceHud {
     rail: $('h-rail'),
     rough: $('h-rough'),
     flag: $('flag-banner'),
+    weather: $('h-weather'),
+    wind: $('h-wind'),
+    windArrow: $('h-wind-arrow'),
   };
   private readonly lampUnits = [...document.querySelectorAll<HTMLElement>('#start-lights .lamp-unit')];
   private readonly paceSegs = [...document.querySelectorAll<HTMLElement>('#race-hud .pace-seg')];
@@ -65,6 +74,22 @@ export class RaceHud {
     e.post.textContent = String(h.postNumber);
     e.post.style.background = badge.bg;
     e.post.style.color = badge.fg;
+    // --- 天候と風（矢印は馬の進行方向から見た風の向き：↑ = 追い風、↓ = 向かい風） ---
+    const rain = race.weather === 'rain';
+    const dirt = race.track.def.surface === 'dirt';
+    e.weather.textContent = `${rain ? '雨' : race.track.def.night ? '夜' : '晴れ'}・${dirt ? 'ダート' : '芝'}${rain ? '重' : '良'}`;
+    e.weather.classList.toggle('rain', rain);
+    const dir = race.track.frameAt(h.s).dir;
+    const along = race.wind.x * dir.x + race.wind.z * dir.z;
+    // 進行方向の右（画面の右）向きの成分
+    const cross = race.wind.x * -dir.z + race.wind.z * dir.x;
+    const angle = Math.atan2(cross, along);
+    e.windArrow.style.transform = `rotate(${angle}rad)`;
+    const kind = Math.abs(along) < 0.8 ? '横風' : along > 0 ? '追い風' : '向かい風';
+    e.wind.textContent = `${kind} ${Math.abs(along).toFixed(1)}m/s`;
+    e.wind.title = `${windName(race.wind.fromDeg)} ${race.wind.speed.toFixed(1)}m/s`;
+    e.wind.className = along > 0.8 ? 'tail' : along < -0.8 ? 'head' : '';
+
     // ペースごとの巡航速度（km/h）を出して違いを分かりやすく
     const baseTop = RACE_CONFIG.topSpeedBase + h.entry.horse.stats.speed * RACE_CONFIG.topSpeedPerStat;
     this.paceSegs.forEach((s) => {

@@ -100,4 +100,38 @@ export interface CourseDefinition {
    * concrete = サーキットらしいグレーの舗装（芝の走路から infieldVerge ブロック離れた所から敷く）
    */
   infield?: { surface: 'concrete'; verge: number };
+  /**
+   * コースの基本の風（レースごとに少し揺らぐ）。fromDeg = 風が吹いてくる方角（0 = 北 = -z, 90 = 東 = +x）、speed = m/s
+   */
+  wind: { fromDeg: number; speed: number };
+  /** 雨になる確率（天候「ランダム」・シリーズ戦で使う） */
+  rainChance: number;
+  /** 路面（turf = 芝、dirt = ダート）。省略時は芝 */
+  surface?: 'turf' | 'dirt';
+  /** ナイター（夜空・照明）。省略時は昼 */
+  night?: boolean;
+  /** コースまわりの景観（建物・水面・山並み・照明塔など） */
+  scenery?: SceneryItem[];
+  /** 木の量（1 = ふつう、0 = 植えない）と葉の色 */
+  trees?: { density: number; color?: number };
 }
+
+/**
+ * 景観の指定（距離は m。s はゴール板からの距離、lateral は内側が +）。
+ * 置く場所がコース・ピット・スタンドにかかる時は自動で間引く。
+ */
+export type SceneryItem =
+  /** 建物の並び：s の範囲に沿って、内側（in）か外側（out）のラチから offset m 離れた所に rows 列 */
+  | { kind: 'buildings'; from: number; to: number; side: 'in' | 'out'; offset: number; rows?: number; height: [number, number]; colors: number[]; spacing?: number; depth?: number }
+  /** 水面（池・湖・海）：s, lateral の位置に w × d m の水面。boats 隻のボートを浮かべる */
+  | { kind: 'water'; s: number; lateral: number; w: number; d: number; boats?: number }
+  /** 遠くの山並み（ワールドの外周）。高さ [最小, 最大] m */
+  | { kind: 'mountains'; count: number; height: [number, number]; color: number }
+  /** ナイターの照明塔：every m ごとに外側へ offset m */
+  | { kind: 'lights'; every: number; offset: number }
+  /** 観客スタンドの並び（スタジアム区間など）：s の範囲の外側 */
+  | { kind: 'stands'; from: number; to: number; offset: number; side?: 'in' | 'out' }
+  /** 壁（城壁など）：s の範囲の外側に高さ height m */
+  | { kind: 'wall'; from: number; to: number; side: 'in' | 'out'; offset: number; height: number; color: number }
+  /** 目印の建物：s, lateral の位置に箱を組み合わせる。[x, z, 幅, 奥行き, 高さ, 色, 光る?]（m。x = 進行方向, z = 内側） */
+  | { kind: 'landmark'; s: number; lateral: number; boxes: [number, number, number, number, number, number, boolean?][] };

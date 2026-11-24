@@ -160,6 +160,16 @@ export const RACE_CONFIG = {
   /** 走りのアニメーション：1m 進むごとの脚の位相（完歩 約 7m） */
   gallopPhasePerMeter: 0.9,
 
+  // --- 天候・風 ---
+  /** 雨の日は芝が湿って荒れやすい（芝の荒れる速さの倍率） */
+  rainTurfWear: 1.4,
+  /** 風：進行方向の風速 1m/s あたりの最高速度の変化（m/s。追い風で +、向かい風で -） */
+  windTopSpeedPerMs: 0.06,
+  /** 風：進行方向の風速 1m/s あたりのムチの伸び（上乗せの速さ・叩いた瞬間の伸び）の変化の割合 */
+  windWhipPerMs: 0.05,
+  /** AI が雨の日にあえて晴れ用の蹄鉄で出る（ギャンブル）割合 */
+  aiDryGambleChance: 0.15,
+
   // --- 実況 ---
   /** 実況の 1 馬身（m） */
   horseLengthMeters: 2.4,

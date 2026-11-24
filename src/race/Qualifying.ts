@@ -1,5 +1,5 @@
 import type { CourseTrack } from '../course/CourseTrack';
-import { CONSTRUCTORS, type EntryData } from '../data/roster';
+import { teamsOf, type EntryData } from '../data/roster';
 import { Race } from './Race';
 import { NO_CONTROLS } from './RaceHorse';
 
@@ -52,7 +52,7 @@ export function runQualifying(track: CourseTrack, entries: readonly EntryData[])
   const byTime = (a: number | null, b: number | null) => (a ?? Infinity) - (b ?? Infinity);
   rows.sort((a, b) => byTime(a.time, b.time));
 
-  const teams = CONSTRUCTORS.map((c) => {
+  const teams = teamsOf(entries).map((c) => {
     const times = rows.filter((r) => r.entry.constructorId === c.id).map((r) => r.time);
     const valid = times.filter((t): t is number => t !== null);
     return { constructorId: c.id, best: valid.length ? Math.min(...valid) : null, pitNumber: 0 };

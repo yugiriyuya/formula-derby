@@ -550,7 +550,8 @@ body.q-shown #center-msg {
   font-size: 10px;
   color: #ffd23a;
 }
-#qualifying-screen .q-note {
+#qualifying-screen .q-note,
+#series-screen .q-note {
   margin: 10px 0 0;
   font-size: 11px;
   color: #999;
@@ -1194,4 +1195,205 @@ body[data-mode='title'] #sfx-toggle {
 #commentary .label,
 #commentary .text {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- 天候・風（HUD） ---------- */
+#race-hud .row.weather {
+  font-size: 12px;
+  white-space: nowrap;
+}
+#h-weather.rain {
+  color: #7fc4ff;
+}
+#race-hud .windk {
+  margin-left: 8px;
+}
+.wind-arrow {
+  display: inline-block;
+  width: 14px;
+  font-weight: 900;
+  color: #ffd23a;
+  text-align: center;
+  transition: transform 0.3s;
+}
+#h-wind.tail {
+  color: #8be08b;
+}
+#h-wind.head {
+  color: #ff9a8a;
+}
+
+/* ---------- タイトル：シリーズ戦 ---------- */
+#title-screen .series-menu {
+  margin-top: 14px;
+  padding-top: 12px;
+  text-align: left;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+#title-screen .series-head b {
+  margin-right: 8px;
+  color: #ffd23a;
+}
+#title-screen .series-head small {
+  font-size: 11px;
+  color: #aaa;
+}
+#title-screen .series-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+#title-screen .series-buttons button {
+  flex: 1;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: #6b4a12;
+  border: 2px solid #ffd23a;
+  border-radius: 0;
+  cursor: pointer;
+}
+#title-screen .series-buttons button.resume {
+  background: #2f7d3a;
+  border-color: #6fd17d;
+}
+#title-screen .series-buttons button:hover {
+  filter: brightness(1.15);
+}
+#title-screen .opts.courses {
+  flex-wrap: wrap;
+}
+#title-screen .opts.courses button {
+  flex: 0 0 calc(20% - 7px);
+  padding: 4px 6px;
+}
+#title-screen .opts.courses button b {
+  font-size: 12px;
+}
+#title-screen .opts.courses button small {
+  font-size: 10px;
+}
+#title-screen .title-box {
+  max-width: 820px;
+  max-height: calc(100vh - 16px);
+  padding: 18px 30px 20px;
+  overflow-y: auto;
+}
+.result-buttons button.series {
+  background: #6b4a12;
+  border-color: #ffd23a;
+}
+
+/* ---------- シリーズ順位 ---------- */
+#series-screen {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+#series-screen.show {
+  display: flex;
+}
+body.series-shown #race-hud,
+body.series-shown #center-msg,
+body.series-shown #commentary,
+body.series-shown #result-screen {
+  display: none !important;
+}
+#series-screen .result-body {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+#series-screen .sec-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd23a;
+}
+#series-teams table,
+#series-horses table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#series-teams th,
+#series-teams td,
+#series-horses th,
+#series-horses td {
+  padding: 3px 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: right;
+  white-space: nowrap;
+}
+#series-teams th,
+#series-horses th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa;
+}
+#series-screen .l {
+  text-align: left;
+}
+#series-screen tr.lead td {
+  background: rgba(255, 210, 58, 0.14);
+}
+#series-screen td.gain {
+  color: #8be08b;
+}
+#series-rounds {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+#series-rounds .rd {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 5px;
+  font-size: 10px;
+  color: #999;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+#series-rounds .rd b {
+  font-size: 11px;
+  color: #ddd;
+}
+#series-rounds .rd.done span {
+  color: #ffd23a;
+}
+#series-rounds .rd.next {
+  border-color: #6fd17d;
+}
+#series-champion .champ {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, rgba(255, 210, 58, 0.25), rgba(255, 210, 58, 0.05));
+  border: 2px solid #ffd23a;
+}
+#series-champion .cup {
+  font-size: 40px;
+}
+#series-champion .champ > div {
+  display: flex;
+  flex-direction: column;
+}
+#series-champion small {
+  font-size: 11px;
+  color: #ffe9a8;
+}
+#series-champion b {
+  font-size: 20px;
+}
+#series-champion span {
+  font-size: 12px;
+  color: #ddd;
 }

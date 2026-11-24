@@ -5,6 +5,11 @@ import { COURSES, courseById } from './course/courses';
 import { loadSettings, saveSettings, type LapsOption } from './data/settings';
 import { runQualifying, type QualifyingResult } from './race/Qualifying';
 import { QualifyingScreen } from './ui/QualifyingScreen';
+import { SeriesScreen } from './ui/SeriesScreen';
+import { isFinished, loadSeries, newSeries, randomWind, recordRound, saveSeries, type SeriesState } from './race/Series';
+import { WeatherView } from './scene/WeatherView';
+import type { Weather } from './race/Race';
+import { windName } from './ui/RaceHud';
 import { CourseTrack } from './course/CourseTrack';
 import { buildCourseWorld, type WorldBounds } from './scene/courseWorld';
 import { buildFences } from './scene/fences';
@@ -13,7 +18,8 @@ import { buildStructures } from './scene/structures';
 import { buildLabels } from './scene/labels';
 import { createClouds, createLights, SKY_COLOR } from './scene/sky';
 import { CameraRig, FOLLOW_STYLE_LABEL, type CameraMode, type FollowStyle, type ViewId } from './camera/CameraRig';
-import { constructorOf, ENTRIES, PLAYER_ENTRY_ID } from './data/roster';
+import { constructorOf, ENTRIES, fieldEntries, PLAYER_ENTRY_ID, teamsOf, type FieldSize } from './data/roster';
+import { buildScenery } from './scene/scenery';
 import { Race } from './race/Race';
 import { TurfWear } from './race/TurfWear';
 import { RACE_CONFIG } from './race/raceConfig';
@@ -36,6 +42,9 @@ import type { ReplayHorseFrame } from './race/ReplayRecorder';
  *   ?mode=race|spectate タイトルを飛ばしてシンプルレース / 観戦モードで開始
  *   ?course=interlagos コースを指定（kyoto-outer / interlagos。指定がなければタイトルで選んだコース）
  *   ?qual=1            予選ありで開始（?mode= と一緒に使う。予選結果の画面で止まる）
+ *   ?weather=rain      天候を指定（sunny / rain。?mode= と一緒に使う）
+ *   ?field=16          出走頭数（12 / 16）
+ *   &series=1          早送りでレースが終わったら、シリーズ戦の 1 戦目として順位画面を開く（final = 全戦終了の画面。保存はしない）
  *   ?laps=1            周回数を変更（既定 5）
  *   ?start=1300&pit=1  スタート位置（ゴール板から何 m 地点か）を変更 / 最初からピット要求 ON
  *   ?auto=1            ペースを常にハイペースにする（確認用）
@@ -58,9 +67,12 @@ const settings = loadSettings();
 if (params.has('mode')) {
   settings.laps = 5;
   settings.qualifying = params.get('qual') === '1';
+  settings.weather = params.get('weather') === 'rain' ? 'rain' : 'sunny';
 }
 /** 走るコース。コースを変えるとワールド全体を作り直すので、ページを読み込み直して切り替える */
 const COURSE = courseById(params.get('course') ?? settings.course);
+/** 出走表（頭数 12 / 16。?field=16 でも指定できる）。頭数を変える時も読み込み直す */
+const FIELD = fieldEntries(numParam('field') ?? settings.fieldSize);
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -103,18 +115,22 @@ const world = buildCourseWorld(track, WORLD_BOUNDS);
 scene.add(world.group);
 scene.add(buildFences(track, world.topAt));
 scene.add(buildDistanceMarkers(track, world.topAt));
-const structures = buildStructures(track, world.topAt, WORLD_BOUNDS);
+const structures = buildStructures(track, world.topAt, WORLD_BOUNDS, teamsOf(FIELD));
 scene.add(structures.group);
+// コースごとの景観（池・山並み・建物・港・城壁・スタジアム・照明塔など）
+if (COURSE.scenery) scene.add(buildScenery(track, world.topAt, WORLD_BOUNDS, COURSE.scenery));
 const labels = buildLabels(track);
 scene.add(labels);
 
 const clouds = createClouds(30, 1800, 520);
 scene.add(clouds.group);
+// 天候の見た目（雨：灰色の空・霧・濡れた芝・雨粒）
+const weatherView = new WeatherView(scene, lights, world.turf.mesh.material as THREE.Material, clouds.group, COURSE.night === true);
 
 // --- Race（出走表の全頭。誰を操作するかはモード選択で決める） ---
 // シンプルレースで操作する馬：?player=番号（出走表の番号 1〜）。指定がなければクロワデュノール
-const playerEntry = ENTRIES.find((e) => e.number === numParam('player')) ?? ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
-const race = new Race(track, numParam('laps') ?? settings.laps ?? RACE_CONFIG.laps, ENTRIES, null);
+const playerEntry = FIELD.find((e) => e.number === numParam('player')) ?? ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
+const race = new Race(track, numParam('laps') ?? settings.laps ?? RACE_CONFIG.laps, FIELD, null);
 race.setLaps(race.laps);
 // 馬場の荒れ度（ブロック単位）。レースをやり直すたびにきれいな芝に戻る
 const turfWear = new TurfWear(WORLD_BOUNDS);
@@ -127,6 +143,7 @@ for (const m of horseModels.values()) scene.add(m.root);
 // 芦毛のセーフティホース（出動中だけ表示）
 // 荒れた芝を走る時に蹄から舞う土煙・芝片
 const turfParticles = new TurfParticles();
+turfParticles.dirt = COURSE.surface === 'dirt';
 scene.add(turfParticles.mesh);
 const safetyModel = HorseModel.safetyHorse();
 safetyModel.root.visible = false;
@@ -138,6 +155,7 @@ const input = new KeyboardInput();
 const commentary = new Commentary();
 const resultScreen = new ResultScreen();
 const qualifyingScreen = new QualifyingScreen();
+const seriesScreen = new SeriesScreen();
 const sfx = new Sfx();
 
 // --- Camera rig ---
@@ -157,7 +175,8 @@ const maxH = Math.max(...COURSE.elevation.map((k) => k.h));
 document.getElementById('course-name')!.textContent = COURSE.name;
 const refreshCourseInfo = () => {
   document.getElementById('course-info')!.textContent =
-    `全長 約${Math.round(track.length * mpb)}m（1ブロック=${mpb}m）・高低差 約${Math.round(maxH * mpb)}m（誇張表示）・${race.laps}周`;
+    `全長 約${Math.round(track.length * mpb)}m（1ブロック=${mpb}m）・高低差 約${Math.round(maxH * mpb)}m（誇張表示）・${race.laps}周・` +
+    `${race.weather === 'rain' ? '雨（重馬場）' : '晴れ（良馬場）'}・${windName(race.wind.fromDeg)} ${race.wind.speed.toFixed(1)}m/s`;
 };
 refreshCourseInfo();
 // コース確認用の「坂」の視点ボタンはコースごとの名前
@@ -237,6 +256,10 @@ const watchAfterRetire = () => {
 // --- レース後：リザルトとゴール前リプレイ ---
 /** リザルトを出したか（全馬ゴールの 2.5 秒後に 1 度だけ自動で出す）と、レースが終わった時刻 */
 let resultShown = false;
+/** シリーズ戦の進み具合（ブラウザに保存）・今のレースがシリーズ戦か・このレースの結果を記録したか */
+let series: SeriesState | null = loadSeries();
+let inSeries = false;
+let seriesRecorded = false;
 let finishedAt: number | null = null;
 const replay = {
   active: false,
@@ -268,6 +291,16 @@ const replaySpeedBtns = document.querySelectorAll<HTMLButtonElement>('[data-repl
 const showResults = () => {
   resultShown = true;
   document.body.classList.add('showing-result');
+  // シリーズ戦：このレースの結果をポイントにして記録し、次のラウンドへ進めて保存する（1 レースにつき 1 回）
+  if (series && inSeries && !seriesRecorded && race.phase === 'finished') {
+    seriesRecorded = true;
+    if (recordRound(series, race)) {
+      series.round++;
+      // 確認用の &series= では保存しない（遊んでいるシリーズを上書きしないように）
+      if (!params.has('series')) saveSeries(series);
+    }
+  }
+  resultScreen.setSeries(inSeries);
   resultScreen.show(race);
 };
 
@@ -416,6 +449,8 @@ const updateReplayCamera = (frames: ReplayHorseFrame[], dt: number) => {
 const restartRace = () => {
   stopReplay(false);
   hideResults();
+  hideSeriesScreen();
+  seriesRecorded = false;
   resultShown = false;
   finishedAt = null;
   race.restart();
@@ -452,7 +487,7 @@ const runQualifyingFlow = (mode: 'race' | 'spectate', followStyle?: FollowStyle)
   document.body.classList.add('qualifying');
   qualifyingScreen.hide();
   setTimeout(() => {
-    const result = runQualifying(track, ENTRIES);
+    const result = runQualifying(track, FIELD);
     titleBusy.textContent = '';
     qualifyingFor = { mode, followStyle, result };
     applyQualifying(result);
@@ -460,9 +495,24 @@ const runQualifyingFlow = (mode: 'race' | 'spectate', followStyle?: FollowStyle)
   }, 30);
 };
 
+/**
+ * 天候と風を決める。指定がなければタイトルの設定（ランダムならコースの雨の降りやすさで抽選）と、
+ * コースの基本の風を少し揺らしたもの。「同じ条件で再レース」ではそのまま使う
+ */
+const prepareConditions = (weather?: Weather, wind?: { fromDeg: number; speed: number }) => {
+  const w: Weather =
+    weather ?? (settings.weather === 'random' ? (Math.random() < COURSE.rainChance ? 'rain' : 'sunny') : settings.weather);
+  race.setWeather(w);
+  const wd = wind ?? (params.has('mode') ? COURSE.wind : randomWind(COURSE.wind));
+  race.setWind(wd.fromDeg, wd.speed);
+  weatherView.set(w);
+  refreshCourseInfo();
+};
+
 /** モードを選んでレースを始める（予選ありなら先に予選） */
-const startMode = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
-  if (settings.qualifying) {
+const startMode = (mode: 'race' | 'spectate', followStyle?: FollowStyle, qualifying = settings.qualifying, keepConditions = false) => {
+  if (!keepConditions) prepareConditions();
+  if (qualifying) {
     runQualifyingFlow(mode, followStyle);
     return;
   }
@@ -493,6 +543,13 @@ const showTitle = () => {
   qualifyingScreen.hide();
   document.body.classList.remove('qualifying');
   titleBusy.textContent = '';
+  hideSeriesScreen();
+  if (inSeries) {
+    inSeries = false;
+    race.setLaps(settings.laps);
+  }
+  resultScreen.setSeries(false);
+  refreshSeriesButtons();
   resultShown = false;
   finishedAt = null;
   commentary.reset();
@@ -513,6 +570,20 @@ const onClick = (b: HTMLElement, fn: () => void) =>
     b.blur();
   });
 
+/** コースを切り替える：読み込み中の幕を出してから読み込み直す（新しいページも同じ幕から始まるので白い画面は出ない） */
+const reloadWithCourse = (courseId: string, fieldSize = settings.fieldSize) => {
+  settings.course = courseId;
+  settings.fieldSize = fieldSize;
+  saveSettings(settings);
+  const cover = document.getElementById('boot-cover')!;
+  document.getElementById('boot-text')!.textContent = `${courseById(courseId).shortName} を読み込み中…`;
+  cover.classList.remove('hidden');
+  // URL でコースを指定していたら外す
+  const url = new URL(location.href);
+  url.searchParams.delete('course');
+  setTimeout(() => location.replace(url.toString()), 120);
+};
+
 const togglePreview = (viaPit: boolean) => {
   const sameMode = rig.previewing && document.querySelector(`[data-preview="${viaPit ? 'pit' : 'normal'}"].active`);
   if (sameMode) rig.stopPreview();
@@ -524,6 +595,7 @@ const titleBusy = document.createElement('div');
 titleBusy.className = 'busy';
 document.querySelector('#title-screen .title-box')!.appendChild(titleBusy);
 const courseOpts = document.getElementById('set-course')!;
+courseOpts.classList.add('courses');
 for (const c of COURSES) {
   const b = document.createElement('button');
   b.dataset.course = c.id;
@@ -534,23 +606,36 @@ const refreshTitleSettings = () => {
   document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) => b.classList.toggle('active', b.dataset.course === COURSE.id));
   document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) => b.classList.toggle('active', Number(b.dataset.laps) === race.laps));
   document.querySelectorAll<HTMLButtonElement>('[data-qual]').forEach((b) => b.classList.toggle('active', (b.dataset.qual === '1') === settings.qualifying));
-  document.getElementById('set-course-desc')!.textContent = COURSE.description;
-  document.getElementById('title-sub')!.textContent = `${COURSE.name}・${race.laps}周・12頭・${settings.qualifying ? '予選あり' : '予選なし'}`;
+  document.querySelectorAll<HTMLButtonElement>('[data-weather]').forEach((b) => b.classList.toggle('active', b.dataset.weather === settings.weather));
+  document.querySelectorAll<HTMLButtonElement>('[data-field]').forEach((b) => b.classList.toggle('active', Number(b.dataset.field) === FIELD.length));
+  document.getElementById('set-course-desc')!.textContent =
+    `${COURSE.description}　風：${windName(COURSE.wind.fromDeg)} 約${COURSE.wind.speed}m/s・雨の確率 ${Math.round(COURSE.rainChance * 100)}%`;
+  const weatherText = settings.weather === 'random' ? '天候ランダム' : settings.weather === 'rain' ? '雨' : '晴れ';
+  document.getElementById('title-sub')!.textContent = `${COURSE.name}・${race.laps}周・${FIELD.length}頭・${weatherText}・${settings.qualifying ? '予選あり' : '予選なし'}`;
   refreshCourseInfo();
 };
 document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) =>
   onClick(b, () => {
     if (b.dataset.course === COURSE.id) return;
-    settings.course = b.dataset.course!;
+    reloadWithCourse(b.dataset.course!);
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-field]').forEach((b) =>
+  onClick(b, () => {
+    const size = Number(b.dataset.field) as FieldSize;
+    if (size === FIELD.length) return;
+    // 出走表が変わる（馬・ピットボックス・ゲート）ので読み込み直す
+    reloadWithCourse(COURSE.id, size);
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-weather]').forEach((b) =>
+  onClick(b, () => {
+    settings.weather = b.dataset.weather as typeof settings.weather;
     saveSettings(settings);
-    // コースのワールドを作り直すため、読み込み直す（URL でコースを指定していたら外す）
-    // 読み込み中の幕を出してから読み込み直す（新しいページも同じ幕から始まるので白い画面は出ない）
-    const cover = document.getElementById('boot-cover')!;
-    document.getElementById('boot-text')!.textContent = `${COURSES.find((c) => c.id === settings.course)?.shortName ?? ''} を読み込み中…`;
-    cover.classList.remove('hidden');
-    const url = new URL(location.href);
-    url.searchParams.delete('course');
-    setTimeout(() => location.replace(url.toString()), 120);
+    // タイトルの背景にも天候を反映（ランダムは晴れで表示）
+    race.setWeather(settings.weather === 'rain' ? 'rain' : 'sunny');
+    weatherView.set(race.weather);
+    refreshTitleSettings();
   }),
 );
 document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) =>
@@ -569,6 +654,10 @@ document.querySelectorAll<HTMLButtonElement>('[data-qual]').forEach((b) =>
     refreshTitleSettings();
   }),
 );
+// タイトルの背景：コースの基本の風と、設定の天候（ランダムは晴れで表示）
+race.setWind(COURSE.wind.fromDeg, COURSE.wind.speed);
+race.setWeather(settings.weather === 'rain' ? 'rain' : 'sunny');
+weatherView.set(race.weather);
 refreshTitleSettings();
 
 // 予選結果
@@ -579,6 +668,70 @@ qualifyingScreen.onRedo = () => {
   if (qualifyingFor) runQualifyingFlow(qualifyingFor.mode, qualifyingFor.followStyle);
 };
 qualifyingScreen.onTitle = showTitle;
+
+// --- シリーズ戦 ---
+const seriesResumeBtn = document.getElementById('btn-series-resume') as HTMLButtonElement;
+function refreshSeriesButtons() {
+  const s = series;
+  if (s && !isFinished(s)) {
+    const next = s.rounds[s.round];
+    seriesResumeBtn.style.display = '';
+    seriesResumeBtn.textContent = `続きから：第${s.round + 1}戦 ${courseById(next.courseId).shortName}（${s.mode === 'race' ? '騎乗' : '観戦'}）`;
+  } else seriesResumeBtn.style.display = 'none';
+}
+function hideSeriesScreen() {
+  seriesScreen.hide();
+  document.body.classList.remove('series-shown');
+}
+/** シリーズの今のラウンドを始める（天候・風はシリーズ開始時に決めたもの） */
+function startSeriesRace() {
+  if (!series) return;
+  const round = series.rounds[series.round];
+  inSeries = true;
+  race.setLaps(series.laps);
+  prepareConditions(round.weather, round.wind);
+  startMode(series.mode, undefined, series.qualifying, true);
+}
+/** 次のラウンドのコースへ（違うコースなら読み込み直して、読み込み後に自動でスタート） */
+const goToSeriesRound = () => {
+  if (!series || isFinished(series)) return;
+  const round = series.rounds[series.round];
+  const fieldSize = series.fieldSize ?? 12;
+  if (round.courseId !== COURSE.id || fieldSize !== FIELD.length) {
+    try {
+      sessionStorage.setItem('fd-series-go', '1');
+    } catch {
+      // 自動スタートできなくても、タイトルの「続きから」で続けられる
+    }
+    reloadWithCourse(round.courseId, fieldSize as FieldSize);
+    return;
+  }
+  startSeriesRace();
+};
+const startNewSeries = (mode: 'race' | 'spectate') => {
+  series = newSeries(mode, settings.laps, settings.qualifying, settings.fieldSize);
+  saveSeries(series);
+  goToSeriesRound();
+};
+onClick(document.getElementById('btn-series-race')!, () => startNewSeries('race'));
+onClick(document.getElementById('btn-series-spectate')!, () => startNewSeries('spectate'));
+onClick(seriesResumeBtn, goToSeriesRound);
+resultScreen.onSeries = () => {
+  if (!series) return;
+  hideResults();
+  document.body.classList.add('series-shown');
+  seriesScreen.show(series);
+};
+seriesScreen.onNext = () => {
+  hideSeriesScreen();
+  goToSeriesRound();
+};
+seriesScreen.onBack = () => {
+  hideSeriesScreen();
+  showResults();
+};
+seriesScreen.onTitle = showTitle;
+refreshSeriesButtons();
 
 // タイトル
 onClick(document.getElementById('btn-race')!, () => startMode('race'));
@@ -692,7 +845,21 @@ if (initialMode === 'race' || initialMode === 'spectate') {
     rig.snapFollow();
     // 早送りでレースが終わっていたらすぐリザルト。&replay=秒 ならその時点のリプレイで一時停止
     if (race.phase === 'finished') {
+      // 確認用：&series=1 ならシリーズ戦の 1 戦目として記録し、シリーズ順位を開く（保存はしない）。
+      // &series=final なら全 10 戦をこのレースの結果で埋めてチャンピオン画面を開く
+      const demo = params.get('series');
+      if (demo) {
+        series = newSeries(chosenMode, race.laps, false);
+        inSeries = true;
+        if (demo === 'final') {
+          for (let i = 0; i < series.rounds.length - 1; i++) {
+            recordRound(series, race);
+            series.round++;
+          }
+        }
+      }
       showResults();
+      if (demo) resultScreen.onSeries?.();
       // &replay=photo なら写真判定の瞬間（鼻先がゴールラインに届いた所）で止める
       const rt = params.get('replay') === 'photo' ? 'photo' : numParam('replay');
       if (rt !== undefined) {
@@ -710,6 +877,17 @@ if (initialMode === 'race' || initialMode === 'spectate') {
   }
 } else {
   showTitle();
+  // シリーズ戦で次のコースへ読み込み直した直後なら、そのままスタート
+  let go = false;
+  try {
+    go = sessionStorage.getItem('fd-series-go') === '1';
+    sessionStorage.removeItem('fd-series-go');
+  } catch {
+    go = false;
+  }
+  if (go && series && !isFinished(series) && series.rounds[series.round].courseId === COURSE.id && (series.fieldSize ?? 12) === FIELD.length) {
+    startSeriesRace();
+  }
 }
 
 // --- Resize ---
@@ -753,6 +931,7 @@ renderer.setAnimationLoop((time) => {
     });
     updateReplayCamera(frames, dt);
     clouds.update(dt);
+    weatherView.update(dt, camera);
     lights.follow(controls.target);
     renderer.render(scene, camera);
     hideBootCover();
@@ -761,7 +940,8 @@ renderer.setAnimationLoop((time) => {
 
   if (appMode !== 'title') {
     if (pressed.has('KeyC')) rig.toggleFollowStyle();
-    if (pressed.has('KeyR')) restartRace();
+    // シリーズ戦ではやり直しできない
+    if (pressed.has('KeyR') && !inSeries) restartRace();
   }
 
   // 効果音：赤ランプの点灯・ゲート開放
@@ -835,6 +1015,7 @@ renderer.setAnimationLoop((time) => {
   }
 
   clouds.update(dt);
+    weatherView.update(dt, camera);
   rig.update(dt);
   lights.follow(controls.target); // 影はカメラが見ている所のまわりに描く
   world.turf.sync(turfWear); // 荒れたマスの芝の色を更新

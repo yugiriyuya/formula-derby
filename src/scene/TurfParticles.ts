@@ -17,6 +17,10 @@ const DUST_COLOR = new THREE.Color(0xc2a77c);
  *  - 土煙：大きめで淡い色、ふわっと浮いて消える
  * 荒れ度と速さに応じて量が増える（＝グリップが落ちて減速しているのが見てわかる）。
  */
+/** ダートの砂（蹴り上げる砂粒と、舞う砂ぼこり） */
+const SAND_COLORS = [new THREE.Color(0xb48a5a), new THREE.Color(0x9a7046), new THREE.Color(0xc9a272)];
+const SAND_DUST = new THREE.Color(0xd8bf98);
+
 export class TurfParticles {
   readonly mesh: THREE.InstancedMesh;
   private readonly pos = new Float32Array(MAX * 3);
@@ -28,6 +32,8 @@ export class TurfParticles {
   /** 地面の高さ（坂の上でも地面で止まるように） */
   private readonly floor = new Float32Array(MAX);
   private next = 0;
+  /** ダートコース：砂を蹴り上げる */
+  dirt = false;
   /** 馬ごとの「出しそびれた端数」（1 フレームに 1 個未満の時に貯めておく） */
   private readonly carry = new Map<object, number>();
   private readonly m = new THREE.Matrix4();
@@ -54,6 +60,8 @@ export class TurfParticles {
    * @param wear 足元の荒れ度 0〜1
    */
   emit(key: object, at: THREE.Vector3, dir: THREE.Vector3, speed: number, wear: number, dt: number) {
+    // ダートはきれいな馬場でも蹄が砂を蹴り上げる（芝より多く、砂色だけ）
+    if (this.dirt) wear = Math.max(wear, 0.45);
     if (wear < MIN_WEAR || speed < 6) {
       this.carry.set(key, 0);
       return;
@@ -89,7 +97,15 @@ export class TurfParticles {
       this.size[i] = dust ? 0.22 + Math.random() * 0.16 : 0.08 + Math.random() * 0.07;
       this.gravity[i] = dust ? GRAVITY * 0.12 : GRAVITY;
       // 荒れているほど土くれが多く、まだ浅い荒れなら芝片が多い
-      const color = dust ? DUST_COLOR : Math.random() < 0.3 + wear * 0.6 ? DIRT_COLORS[(Math.random() * 3) | 0] : GRASS_COLOR;
+      const color = this.dirt
+        ? dust
+          ? SAND_DUST
+          : SAND_COLORS[(Math.random() * 3) | 0]
+        : dust
+          ? DUST_COLOR
+          : Math.random() < 0.3 + wear * 0.6
+            ? DIRT_COLORS[(Math.random() * 3) | 0]
+            : GRASS_COLOR;
       this.mesh.setColorAt(i, color);
     }
     if (count > 0 && this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;

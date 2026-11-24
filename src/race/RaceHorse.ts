@@ -123,6 +123,8 @@ export class RaceHorse {
   /** 周回数に合わせた調整（20 周では蹄鉄の摩耗・スタミナの消耗を緩める）。Race.setLaps で設定 */
   shoeWearScale = 1;
   staminaScale = 1;
+  /** 進行方向の風速（m/s。追い風が +、向かい風が -）。Race が毎フレーム設定する */
+  windAlong = 0;
   /** スタート時に履く蹄鉄（AI の作戦で決める。null なら出走表のとおり） */
   startShoeOverride: HorseshoeType | null = null;
 
@@ -323,6 +325,11 @@ export class RaceHorse {
     this.nextShoe = HORSESHOE_ORDER[(i + 1) % HORSESHOE_ORDER.length];
   }
 
+  /** 風によるムチの効き（追い風でよく伸び、向かい風で伸びにくい。0.5〜1.5 倍） */
+  get windWhipFactor(): number {
+    return Math.min(1.5, Math.max(0.5, 1 + C.windWhipPerMs * this.windAlong));
+  }
+
   /** 能力値・蹄鉄・スタミナ・勾配を反映した、現在の最高速度（ムチ込み） */
   topSpeed(condition: TrackCondition): number {
     const st = this.entry.horse.stats;
@@ -334,7 +341,9 @@ export class RaceHorse {
     const slopeEffect = C.slopeEffectBase - st.power * C.slopeEffectPerStat;
     top *= Math.min(1.15, Math.max(0.8, 1 - this.track.slopeAt(this.s) * slopeEffect));
     // ムチ：脚質（差し・追込ほど伸びる）と疲れ具合で効きが変わる
-    if (this.whipBoost > 0) top *= 1 + (C.whipBoostBase + st.intelligence * C.whipBoostPerStat) * this.whipPower * this.style.whipPower;
+    if (this.whipBoost > 0) top *= 1 + (C.whipBoostBase + st.intelligence * C.whipBoostPerStat) * this.whipPower * this.style.whipPower * this.windWhipFactor;
+    // 風：追い風で伸び、向かい風で空気抵抗が増える
+    top += C.windTopSpeedPerMs * this.windAlong;
     // 荒れた馬場：柔らかい蹄鉄ほど大きく減速（ピットレーンは対象外）
     if (this.pitPhase !== 'lane') top *= 1 - this.groundWear * C.roughPenalty[this.shoe];
     // スリップストリーム：前の馬の風よけで +3km/h
@@ -421,7 +430,7 @@ export class RaceHorse {
       this.stamina = Math.max(0, this.stamina - C.whipStaminaCost);
       this.whipsThisLap++;
       // 叩いた瞬間にグッと伸びる
-      this.speed += C.whipImpulse * this.whipPower * this.style.whipPower;
+      this.speed += C.whipImpulse * this.whipPower * this.style.whipPower * this.windWhipFactor;
       // 1 周 5 回目以降のムチは 1 回ごとに +5 秒
       if (this.whipsThisLap >= C.whipPenaltyCount) {
         this.penaltySeconds += C.whipPenaltySeconds;

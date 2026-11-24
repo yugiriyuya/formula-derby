@@ -31,8 +31,22 @@ export class ResultScreen {
   onReplay?: () => void;
   onRetry?: () => void;
   onTitle?: () => void;
+  onSeries?: () => void;
+
+  private readonly retryBtn = document.getElementById('result-retry') as HTMLButtonElement;
+  private readonly seriesBtn = document.getElementById('result-series') as HTMLButtonElement;
+  private readonly titleBtn = document.getElementById('result-title') as HTMLButtonElement;
+
+  /** シリーズ戦中は「同じ条件で再レース」を出さず、「シリーズ順位へ」を出す */
+  setSeries(on: boolean) {
+    this.retryBtn.style.display = on ? 'none' : '';
+    this.seriesBtn.style.display = on ? '' : 'none';
+    this.titleBtn.textContent = on ? 'タイトルへ（シリーズは保存）' : 'タイトルへ戻る';
+  }
 
   constructor() {
+    this.seriesBtn.addEventListener('click', () => this.onSeries?.());
+    this.setSeries(false);
     this.replayBtn.addEventListener('click', () => this.onReplay?.());
     document.getElementById('result-retry')!.addEventListener('click', () => this.onRetry?.());
     document.getElementById('result-title')!.addEventListener('click', () => this.onTitle?.());
@@ -59,7 +73,7 @@ export class ResultScreen {
       return `<div class="b-row"><span class="b-pos">${r.position}</span><span class="b-num">${r.postNumber}</span><span class="b-margin">${margin}</span></div>`;
     });
     this.board.innerHTML = `
-      <div class="b-head"><span class="b-lamp">確定</span><span class="b-title">${esc(race.track.def.shortName)} ${race.laps}周</span></div>
+      <div class="b-head"><span class="b-lamp">確定</span><span class="b-title">${esc(race.track.def.shortName)} ${race.laps}周 ${race.weather === 'rain' ? '重' : '良'}</span></div>
       ${boardRows.join('')}
       <div class="b-foot">タイム ${fmtTime(topTime)}</div>`;
 

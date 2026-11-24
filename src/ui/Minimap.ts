@@ -67,7 +67,7 @@ export class Minimap {
     // 芝コース
     path(() => 0);
     bg.closePath();
-    bg.strokeStyle = '#4f9a3a';
+    bg.strokeStyle = def.surface === 'dirt' ? '#a8804f' : '#4f9a3a';
     bg.lineWidth = Math.max(4, def.trackWidth * this.scale);
     bg.stroke();
     // ゴール板

@@ -66,6 +66,8 @@ export function createBlockTextures() {
     grassTop: noise([95, 159, 53], 40, 3),
     grassSide,
     dirt: noise([134, 96, 67], 35, 7),
+    // ダートコースの砂（明るい砂色。荒れ・湿りは turfSurface のシェーダーで濃くする）
+    sand: noise([176, 138, 96], 22, 29),
     // 芝コース（刈り込みの縞の明暗と荒れによる色の変化は turfSurface のシェーダーで付ける）
     turfA: noise([104, 190, 64], 18, 13),
     stone: noise([150, 150, 150], 30, 23),

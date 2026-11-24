@@ -102,7 +102,8 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
   const classify = (s: number, lat: number, x: number, z: number): Block => {
     if (Math.abs(lat) <= half) {
       if (Math.abs(track.diff(s, def.finishS)) < 0.5) return Block.Finish;
-      // 進行方向の縞 × 幅方向の帯 = 市松模様の刈り込み（流れる速さが見えやすい）
+      // ダート：ハローをかけた筋（幅方向に細い明暗）。芝：進行方向の縞 × 幅方向の帯 = 市松模様の刈り込み
+      if (def.surface === 'dirt') return Math.floor((lat + half) / 2) % 2 === 0 ? Block.TurfA : Block.TurfB;
       const stripe = Math.floor(s / STRIPE_LENGTH) + Math.floor((lat + half) / BAND_WIDTH);
       return stripe % 2 === 0 ? Block.TurfA : Block.TurfB;
     }
@@ -168,7 +169,7 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
       const t = types[i];
       const h = heights[i];
       if (t === Block.TurfA || t === Block.TurfB) {
-        turfCells.push({ ix, iz, height: h, shade: t === Block.TurfA ? 1 : TURF_B_SHADE });
+        turfCells.push({ ix, iz, height: h, shade: t === Block.TurfA ? 1 : def.surface === 'dirt' ? 0.93 : TURF_B_SHADE });
         ix++;
         continue;
       }
@@ -228,7 +229,7 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
     const mesh = b.build(material);
     if (mesh) group.add(mesh);
   }
-  const turf = new TurfSurface(turfCells, bounds, tex.turfA);
+  const turf = new TurfSurface(turfCells, bounds, def.surface === 'dirt' ? tex.sand : tex.turfA, def.surface === 'dirt');
   group.add(turf.mesh);
 
   return {
