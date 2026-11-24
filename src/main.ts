@@ -1,7 +1,10 @@
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { KYOTO_OUTER } from './course/kyotoOuter';
+import { COURSES, courseById } from './course/courses';
+import { loadSettings, saveSettings, type LapsOption } from './data/settings';
+import { runQualifying, type QualifyingResult } from './race/Qualifying';
+import { QualifyingScreen } from './ui/QualifyingScreen';
 import { CourseTrack } from './course/CourseTrack';
 import { buildCourseWorld, type WorldBounds } from './scene/courseWorld';
 import { buildFences } from './scene/fences';
@@ -31,6 +34,8 @@ import type { ReplayHorseFrame } from './race/ReplayRecorder';
 /**
  * 確認用 URL パラメーター
  *   ?mode=race|spectate タイトルを飛ばしてシンプルレース / 観戦モードで開始
+ *   ?course=interlagos コースを指定（kyoto-outer / interlagos。指定がなければタイトルで選んだコース）
+ *   ?qual=1            予選ありで開始（?mode= と一緒に使う。予選結果の画面で止まる）
  *   ?laps=1            周回数を変更（既定 5）
  *   ?start=1300&pit=1  スタート位置（ゴール板から何 m 地点か）を変更 / 最初からピット要求 ON
  *   ?auto=1            ペースを常にハイペースにする（確認用）
@@ -46,6 +51,16 @@ const params = new URLSearchParams(location.search);
 const numParam = (key: string) => (params.has(key) ? Number(params.get(key)) : undefined);
 
 const container = document.getElementById('app')!;
+
+// --- レース設定（タイトルで選ぶ。ブラウザに保存） ---
+const settings = loadSettings();
+// 確認用に ?mode= でタイトルを飛ばした時は、保存した設定ではなく URL の指定（既定 5 周・予選なし）で走る
+if (params.has('mode')) {
+  settings.laps = 5;
+  settings.qualifying = params.get('qual') === '1';
+}
+/** 走るコース。コースを変えるとワールド全体を作り直すので、ページを読み込み直して切り替える */
+const COURSE = courseById(params.get('course') ?? settings.course);
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -74,10 +89,10 @@ const lights = createLights(90);
 scene.add(lights.hemi, lights.sun, lights.sun.target);
 
 // --- Course ---
-const track = new CourseTrack(KYOTO_OUTER);
+const track = new CourseTrack(COURSE);
 // ワールドの大きさはコースの形から決める（コースの外側に約 90m の余白）
 const ext = track.extent();
-const margin = Math.ceil(KYOTO_OUTER.trackWidth / 2 + 90 / KYOTO_OUTER.metersPerBlock);
+const margin = Math.ceil(COURSE.trackWidth / 2 + 90 / COURSE.metersPerBlock);
 const WORLD_BOUNDS: WorldBounds = {
   minX: Math.floor(ext.minX) - margin,
   maxX: Math.ceil(ext.maxX) + margin,
@@ -88,7 +103,8 @@ const world = buildCourseWorld(track, WORLD_BOUNDS);
 scene.add(world.group);
 scene.add(buildFences(track, world.topAt));
 scene.add(buildDistanceMarkers(track, world.topAt));
-scene.add(buildStructures(track, world.topAt, WORLD_BOUNDS));
+const structures = buildStructures(track, world.topAt, WORLD_BOUNDS);
+scene.add(structures.group);
 const labels = buildLabels(track);
 scene.add(labels);
 
@@ -98,7 +114,8 @@ scene.add(clouds.group);
 // --- Race（出走表の全頭。誰を操作するかはモード選択で決める） ---
 // シンプルレースで操作する馬：?player=番号（出走表の番号 1〜）。指定がなければクロワデュノール
 const playerEntry = ENTRIES.find((e) => e.number === numParam('player')) ?? ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
-const race = new Race(track, numParam('laps') ?? RACE_CONFIG.laps, ENTRIES, null);
+const race = new Race(track, numParam('laps') ?? settings.laps ?? RACE_CONFIG.laps, ENTRIES, null);
+race.setLaps(race.laps);
 // 馬場の荒れ度（ブロック単位）。レースをやり直すたびにきれいな芝に戻る
 const turfWear = new TurfWear(WORLD_BOUNDS);
 race.wear = turfWear;
@@ -120,6 +137,7 @@ const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElem
 const input = new KeyboardInput();
 const commentary = new Commentary();
 const resultScreen = new ResultScreen();
+const qualifyingScreen = new QualifyingScreen();
 const sfx = new Sfx();
 
 // --- Camera rig ---
@@ -134,11 +152,16 @@ let chosenMode: 'race' | 'spectate' = 'race';
 /** 観戦モードのレース進行速度（1 倍 / 2 倍） */
 let speedMultiplier = 1;
 
-const mpb = KYOTO_OUTER.metersPerBlock;
-const maxH = Math.max(...KYOTO_OUTER.elevation.map((k) => k.h));
-document.getElementById('course-name')!.textContent = KYOTO_OUTER.name;
-document.getElementById('course-info')!.textContent =
-  `全長 約${Math.round(track.length * mpb)}m（1ブロック=${mpb}m）・淀の坂 高低差 約${Math.round(maxH * mpb)}m（誇張表示）・${race.laps}周`;
+const mpb = COURSE.metersPerBlock;
+const maxH = Math.max(...COURSE.elevation.map((k) => k.h));
+document.getElementById('course-name')!.textContent = COURSE.name;
+const refreshCourseInfo = () => {
+  document.getElementById('course-info')!.textContent =
+    `全長 約${Math.round(track.length * mpb)}m（1ブロック=${mpb}m）・高低差 約${Math.round(maxH * mpb)}m（誇張表示）・${race.laps}周`;
+};
+refreshCourseInfo();
+// コース確認用の「坂」の視点ボタンはコースごとの名前
+document.querySelector<HTMLButtonElement>('[data-view="hill"]')!.textContent = `2 ${COURSE.views.hill.label}`;
 document.getElementById('title-player')!.textContent = playerEntry.horse.name;
 
 const previewButtons = document.querySelectorAll<HTMLButtonElement>('[data-preview]');
@@ -354,7 +377,7 @@ const advanceReplay = (dt: number) => {
  * 固定するとゴールラインが画面のちょうど中央の縦線になるので、そこに判定線を重ねる。
  */
 const updateReplayCamera = (frames: ReplayHorseFrame[], dt: number) => {
-  const finishS = KYOTO_OUTER.finishS;
+  const finishS = COURSE.finishS;
   const camPos = track.frameAt(finishS, -(track.railLateral + 8 / mpb)).position;
   camPos.y += 6 / mpb;
   // 先頭の馬（ゴール板の 600m 手前を基準に、いちばん進んでいる馬）
@@ -415,8 +438,42 @@ const restartRace = () => {
   standings.refresh();
 };
 
-/** モードを選んでレースを始める */
+/** 予選の結果（枠順・ピットボックス）をレースに反映する。null なら抽選の枠順・既定のピット */
+const applyQualifying = (q: QualifyingResult | null) => {
+  race.gridOrder = q ? q.rows.map((r) => race.horses.find((h) => h.entry.id === r.entry.id)!) : null;
+  race.assignGarages(q ? q.garageOrder : null);
+  structures.garages.paint(q ? q.garageOrder : null);
+};
+
+/** 予選（1 周タイムアタック）を走らせて結果を出す。計算の間「予選中…」を出すため、少し待ってから計算する */
+let qualifyingFor: { mode: 'race' | 'spectate'; followStyle?: FollowStyle; result: QualifyingResult } | null = null;
+const runQualifyingFlow = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
+  titleBusy.textContent = '予選（1周タイムアタック）を計算中…';
+  document.body.classList.add('qualifying');
+  qualifyingScreen.hide();
+  setTimeout(() => {
+    const result = runQualifying(track, ENTRIES);
+    titleBusy.textContent = '';
+    qualifyingFor = { mode, followStyle, result };
+    applyQualifying(result);
+    qualifyingScreen.show(result, COURSE, mode === 'race' ? playerEntry.id : null);
+  }, 30);
+};
+
+/** モードを選んでレースを始める（予選ありなら先に予選） */
 const startMode = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
+  if (settings.qualifying) {
+    runQualifyingFlow(mode, followStyle);
+    return;
+  }
+  applyQualifying(null);
+  beginRace(mode, followStyle);
+};
+
+/** 決勝を始める */
+const beginRace = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
+  qualifyingScreen.hide();
+  document.body.classList.remove('qualifying');
   chosenMode = mode;
   applyModeUi(mode);
   controls.autoRotate = false;
@@ -433,6 +490,9 @@ const startMode = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
 const showTitle = () => {
   stopReplay(false);
   hideResults();
+  qualifyingScreen.hide();
+  document.body.classList.remove('qualifying');
+  titleBusy.textContent = '';
   resultShown = false;
   finishedAt = null;
   commentary.reset();
@@ -458,6 +518,67 @@ const togglePreview = (viaPit: boolean) => {
   if (sameMode) rig.stopPreview();
   else rig.startPreview(viaPit);
 };
+
+// タイトル：レース設定（コース・周回数・予選）
+const titleBusy = document.createElement('div');
+titleBusy.className = 'busy';
+document.querySelector('#title-screen .title-box')!.appendChild(titleBusy);
+const courseOpts = document.getElementById('set-course')!;
+for (const c of COURSES) {
+  const b = document.createElement('button');
+  b.dataset.course = c.id;
+  b.innerHTML = `<b>${c.shortName}</b><small>${c.direction === 'right' ? '右回り' : '左回り'}・約${Math.round(new CourseTrack(c).length * c.metersPerBlock).toLocaleString()}m</small>`;
+  courseOpts.appendChild(b);
+}
+const refreshTitleSettings = () => {
+  document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) => b.classList.toggle('active', b.dataset.course === COURSE.id));
+  document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) => b.classList.toggle('active', Number(b.dataset.laps) === race.laps));
+  document.querySelectorAll<HTMLButtonElement>('[data-qual]').forEach((b) => b.classList.toggle('active', (b.dataset.qual === '1') === settings.qualifying));
+  document.getElementById('set-course-desc')!.textContent = COURSE.description;
+  document.getElementById('title-sub')!.textContent = `${COURSE.name}・${race.laps}周・12頭・${settings.qualifying ? '予選あり' : '予選なし'}`;
+  refreshCourseInfo();
+};
+document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) =>
+  onClick(b, () => {
+    if (b.dataset.course === COURSE.id) return;
+    settings.course = b.dataset.course!;
+    saveSettings(settings);
+    // コースのワールドを作り直すため、読み込み直す（URL でコースを指定していたら外す）
+    // 読み込み中の幕を出してから読み込み直す（新しいページも同じ幕から始まるので白い画面は出ない）
+    const cover = document.getElementById('boot-cover')!;
+    document.getElementById('boot-text')!.textContent = `${COURSES.find((c) => c.id === settings.course)?.shortName ?? ''} を読み込み中…`;
+    cover.classList.remove('hidden');
+    const url = new URL(location.href);
+    url.searchParams.delete('course');
+    setTimeout(() => location.replace(url.toString()), 120);
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) =>
+  onClick(b, () => {
+    settings.laps = Number(b.dataset.laps) as LapsOption;
+    saveSettings(settings);
+    race.setLaps(settings.laps);
+    race.restart();
+    refreshTitleSettings();
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-qual]').forEach((b) =>
+  onClick(b, () => {
+    settings.qualifying = b.dataset.qual === '1';
+    saveSettings(settings);
+    refreshTitleSettings();
+  }),
+);
+refreshTitleSettings();
+
+// 予選結果
+qualifyingScreen.onStart = () => {
+  if (qualifyingFor) beginRace(qualifyingFor.mode, qualifyingFor.followStyle);
+};
+qualifyingScreen.onRedo = () => {
+  if (qualifyingFor) runQualifyingFlow(qualifyingFor.mode, qualifyingFor.followStyle);
+};
+qualifyingScreen.onTitle = showTitle;
 
 // タイトル
 onClick(document.getElementById('btn-race')!, () => startMode('race'));
@@ -601,6 +722,13 @@ window.addEventListener('resize', () => {
 // --- Loop ---
 const autoRun = params.get('auto') === '1';
 const timer = new THREE.Timer();
+/** 最初のフレームを描いたら読み込み中の幕を消す */
+let bootCoverShown = true;
+const hideBootCover = () => {
+  if (!bootCoverShown) return;
+  bootCoverShown = false;
+  requestAnimationFrame(() => document.getElementById('boot-cover')!.classList.add('hidden'));
+};
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   // 初回やタブ復帰時に経過時間が負・巨大になることがあるので 0〜0.1 秒に収める
@@ -627,6 +755,7 @@ renderer.setAnimationLoop((time) => {
     clouds.update(dt);
     lights.follow(controls.target);
     renderer.render(scene, camera);
+    hideBootCover();
     return;
   }
 
@@ -648,7 +777,7 @@ renderer.setAnimationLoop((time) => {
     const shift = input.paceShift(pressed);
     if (shift !== 0) shiftPace(race.player, shift);
     if (autoRun) race.player.paceLevel = 'high';
-    race.update(dt, playerControls(race.player, input.steer(), pressed.has('Space'), race.condition));
+    race.update(dt, playerControls(race.player, input.steer() * track.side, pressed.has('Space'), race.condition));
   } else if (appMode === 'spectate') {
     if (pressed.has('ArrowLeft')) setFocus(neighbor(-1));
     if (pressed.has('ArrowRight')) setFocus(neighbor(1));
@@ -713,4 +842,5 @@ renderer.setAnimationLoop((time) => {
   const slipFx = appMode !== 'title' && cameraMode === 'follow' && rig.followStyle !== 'broadcast' && race.focus.slipstream > 0.5;
   document.body.classList.toggle('slipstream', slipFx);
   renderer.render(scene, camera);
+  hideBootCover();
 });

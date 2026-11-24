@@ -36,7 +36,10 @@ export class KeyboardInput {
     return p;
   }
 
-  /** 進路取り（押している間）：-1 = 左（外側）, +1 = 右（内側） */
+  /**
+   * 進路取り（押している間）：-1 = 画面の左, +1 = 画面の右。
+   * コースの lateral（内側が +）に直す時は track.side を掛ける（左回りでは左が内側）
+   */
   steer(): number {
     const left = this.isDown('KeyA', 'ArrowLeft');
     const right = this.isDown('KeyD', 'ArrowRight');

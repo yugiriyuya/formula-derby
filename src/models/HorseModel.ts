@@ -181,7 +181,7 @@ export class HorseModel {
     const yaw = Math.atan2(-frame.dir.z, frame.dir.x);
     const drift = horse.speed > 1 ? Math.atan2(horse.lateralVelocity, horse.speed) : 0;
     // 落馬：ラチのある側へ横倒し（進行方向を軸に回す）
-    const roll = horse.fallen * 1.45 * (horse.lateral >= 0 ? 1 : -1);
+    const roll = horse.fallen * 1.45 * (horse.lateral >= 0 ? 1 : -1) * track.side;
     this.root.rotation.set(roll, yaw - drift * 0.6, Math.atan(track.slopeAt(horse.s)));
     if (this.beacon) {
       this.beaconTime += dt;

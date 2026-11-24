@@ -1,6 +1,6 @@
-import type { TrackCondition } from '../data/horseshoes';
+import type { HorseshoeType, TrackCondition } from '../data/horseshoes';
 import { cruiseControls } from './pace';
-import { PACE_LEVELS, RACE_CONFIG as C, type PaceLevel } from './raceConfig';
+import { PACE_LEVELS, RACE_CONFIG as C, type PaceLevel, type RaceFormat } from './raceConfig';
 import type { HorseControls, RaceHorse } from './RaceHorse';
 import type { SafetyHorse } from './SafetyHorse';
 
@@ -40,12 +40,16 @@ export interface AIContext {
  *  - 進路：ラチ沿いの 1 列目か、そのすぐ外の 2 列目を走る（2 列の馬群）。抜く時だけ外へ持ち出す
  *  - ムチ：最終周のホームストレッチは連打、追い比べでは競りかける。
  *          ふだんは 1 周 4 回までに抑えるが、攻めすぎる騎手は 5 回以上叩いてペナルティを受けることがある
- *  - ピット：レース中に 1 回、予定した周の終わりにピットインして蹄鉄を替える
+ *  - ピット：5 周ではレース中に 1 回、予定した周の終わりにピットインして蹄鉄を替える。
+ *            20 周などの長丁場では、1 ストップ（ハード中心）か 2 ストップ（ソフト中心）の作戦を選ぶ
  * 騎手の戦略値（strategy）が高いほど、ペース配分・進路取りが上手く、ムチの叩きすぎも少ない。
  */
 export class AIController {
-  /** この周回を走り終える直前（4コーナー出口のピット入口）でピットに入る */
+  /** この周回を走り終える直前（4コーナー出口のピット入口）でピットに入る（1 回目） */
   pitLap = 2;
+  /** ピットに入る周（全部）と、各スティントで履く蹄鉄（stints[i] = i 回目のピットの後。stints[0] はスタート） */
+  pitLaps: number[] = [];
+  stints: HorseshoeType[] = [];
   /** 直線で好んで走る横位置（ブロック）と、ペースの性格 */
   private preferredLateral = 0;
   private aggression = 0;
@@ -54,6 +58,8 @@ export class AIController {
   /** 荒れを避けて選んだ今のライン（ブロック）と、選び直すまでの時間 */
   private cleanLine = 0;
   private lineTimer = 0;
+  /** 逆向きのカーブへの切り返し中（秒）。この間は横移動を速くする */
+  private switchTimer = 0;
   /** 1 周に叩くムチの上限（ふつうは 4 = ペナルティの手前。攻めすぎる騎手は 5〜6） */
   whipLimit = C.whipPenaltyCount - 1;
 
@@ -96,16 +102,40 @@ export class AIController {
     return best;
   }
 
+  /**
+   * この先（約 70m）で曲がる向きと量（ラジアン。内ラチ側へ曲がるのが +）。近いカーブほど重く数える。
+   * 右回りのコースでは常に 0 以上。左回りのインテルラゴスのように逆向き（外ラチ側へ曲がる）カーブがあると負になる。
+   */
+  private bendAhead(): number {
+    const h = this.horse;
+    const track = h.track;
+    const mpb = track.def.metersPerBlock;
+    const STEP = 5;
+    let total = 0;
+    for (let d = 0; d <= 70; d += STEP) {
+      const w = 1 - d / 90;
+      total += track.curvatureAt(h.s + d / mpb) * (STEP / mpb) * w;
+    }
+    return total;
+  }
+
   /** レース開始時に作戦を決める */
-  plan(laps: number, rand: () => number, teammatePitLap: number | null) {
+  plan(laps: number, rand: () => number, teammatePitLaps: readonly number[], format?: RaceFormat) {
     const half = this.horse.track.def.trackWidth / 2;
     const strategy = this.horse.entry.jockey.strategy;
-    // 1 回ピットの周：レースの中盤。僚馬とは同じ周に入らない（ピットボックスが空くように）
-    const first = Math.max(1, Math.floor(laps * 0.3));
-    const last = Math.max(first, laps - 1);
-    let lap = first + Math.floor(rand() * (last - first + 1));
-    if (teammatePitLap !== null && lap === teammatePitLap && last > first) lap = lap === last ? lap - 1 : lap + 1;
-    this.pitLap = laps >= 2 ? lap : 0;
+    if (format && format.maxStops >= 2) {
+      this.planLongRace(laps, rand, teammatePitLaps, format);
+    } else {
+      // 1 回ピットの周：レースの中盤。僚馬とは同じ周に入らない（ピットボックスが空くように）
+      const teammatePitLap = teammatePitLaps.length ? teammatePitLaps[0] : null;
+      const first = Math.max(1, Math.floor(laps * 0.3));
+      const last = Math.max(first, laps - 1);
+      let lap = first + Math.floor(rand() * (last - first + 1));
+      if (teammatePitLap !== null && lap === teammatePitLap && last > first) lap = lap === last ? lap - 1 : lap + 1;
+      this.pitLap = laps >= 2 ? lap : 0;
+      this.pitLaps = this.pitLap > 0 ? [this.pitLap] : [];
+      this.stints = [];
+    }
     // 2 列の馬群：ラチ沿いの 1 列目か、そのすぐ外の 2 列目を受け持つ（半々）
     const lane = rand() < 0.5 ? LANE_RAIL_M : LANE_SECOND_M;
     const railGapM = lane + rand() * 0.6;
@@ -120,6 +150,49 @@ export class AIController {
     this.lineTimer = 0;
   }
 
+  /**
+   * 長丁場の作戦：1 ストップか 2 ストップか。
+   *  1 ストップ：ハード → ハード（中盤でピット）か、ソフト → ハード（早めにピットして後半をハードで引っ張る）
+   *  2 ストップ：ソフト → ソフト → ハード（ソフトの速さを活かして、こまめに替える）
+   * 戦略値の高い騎手ほど、蹄鉄が摩耗しきる前に替える周を選ぶ。僚馬とは同じ周に入らない。
+   */
+  private planLongRace(laps: number, rand: () => number, teammatePitLaps: readonly number[], format: RaceFormat) {
+    const twoStop = rand() < format.twoStopChance;
+    const jitter = () => Math.round((rand() - 0.5) * laps * 0.12);
+    let fractions: number[];
+    if (twoStop) {
+      this.stints = ['SOFT', 'SOFT', 'HARD'];
+      fractions = [0.28, 0.56];
+    } else if (rand() < 0.5) {
+      this.stints = ['HARD', 'HARD'];
+      fractions = [0.5];
+    } else {
+      this.stints = ['SOFT', 'HARD'];
+      fractions = [0.33];
+    }
+    const laps2: number[] = [];
+    for (const f of fractions) {
+      let lap = Math.min(laps - 1, Math.max(2, Math.round(laps * f) + jitter()));
+      while (laps2.includes(lap) || (laps2.length && lap <= laps2[laps2.length - 1])) lap++;
+      // 僚馬と同じ周ならずらす（ピットボックスが空くように）
+      if (teammatePitLaps.includes(lap)) lap = lap + 1 < laps ? lap + 1 : lap - 1;
+      laps2.push(Math.min(laps - 1, lap));
+    }
+    this.pitLaps = laps2;
+    this.pitLap = laps2[0];
+    const h = this.horse;
+    h.startShoeOverride = this.stints[0];
+    h.shoe = this.stints[0];
+    h.nextShoe = this.stints[1];
+  }
+
+  /** 作戦の説明（例「2ストップ S→S→H」） */
+  get strategyLabel(): string {
+    if (this.pitLaps.length === 0) return 'ノーピット';
+    const shoes = this.stints.length ? ` ${this.stints.map((s) => s[0]).join('→')}` : '';
+    return `${this.pitLaps.length}ストップ${shoes}`;
+  }
+
   decide(dt: number, ctx: AIContext): HorseControls {
     const h = this.horse;
     const track = h.track;
@@ -128,7 +201,11 @@ export class AIController {
     const half = def.trackWidth / 2;
 
     // --- ピット要求 ---
-    if (this.pitLap > 0 && h.pitCount === 0 && !h.pitRequested && h.lapsCompleted === this.pitLap - 1) {
+    const nextPit = this.pitLaps[h.pitCount];
+    if (nextPit !== undefined && !h.pitRequested && h.lapsCompleted === nextPit - 1) {
+      // 次のスティントの蹄鉄（作戦がなければ RaceHorse の既定 = ソフト ⇔ ハード）
+      const shoe = this.stints[h.pitCount + 1];
+      if (shoe) h.nextShoe = shoe;
       h.togglePitRequest();
     }
 
@@ -175,6 +252,13 @@ export class AIController {
       this.cleanLine = this.chooseCleanLine(ctx);
     }
     let wanted = this.cleanLine;
+    // 外ラチ側へ曲がるカーブ（左回りコースの右コーナーなど）が近い時は、そのカーブのイン = 外ラチ側へ渡る。
+    // いつもの列（ラチから 1.8m / 3.6m）を外ラチ側に映した位置を走り、エイペックスを突いて最短距離で抜ける
+    const bend = this.bendAhead();
+    const cornerLine = bend < -0.25;
+    if (cornerLine) wanted = -this.preferredLateral;
+    // 逆向きのカーブの前後 2 秒は、コースを横切る切り返しなので横移動を速くする
+    this.switchTimer = cornerLine ? 2 : Math.max(0, this.switchTimer - dt);
     if (h.finished) wanted = -half + 1.5; // ゴール後は外へ避けて邪魔にならないように
 
     const others = ctx.horses.filter((o) => o !== h && !o.inPit && !o.finished && !o.retired);
@@ -263,7 +347,8 @@ export class AIController {
     const latError = this.targetLateral - h.lateral;
     // 横移動はふだん穏やかに（急な進路変更は接触の元）。ラチに近い時だけ強く戻す
     const urgent = h.railDistance < 0.8;
-    const maxSteer = urgent ? 1 : 0.45;
+    // 切り返し（コースを横切ってカーブのインへ渡る）の時は素早く動く
+    const maxSteer = urgent ? 1 : this.switchTimer > 0 ? 0.8 : 0.45;
     const steer = Math.max(-maxSteer, Math.min(maxSteer, latError / 1.2));
 
     return cruiseControls(h, targetSpeed, steer, this.decideWhip(dt, ctx, finalSpurt));

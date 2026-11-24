@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { CourseTrack } from '../course/CourseTrack';
+import type { CourseSpot } from '../course/types';
 
 export type ViewId = 'overview' | 'hill' | 'pit' | 'finish';
 /** manual = カメラを外から直接動かす（ゴール前リプレイの中継カメラなど）。リグは何もしない */
@@ -37,17 +38,18 @@ const UP = (v: THREE.Vector3, y: number) => v.clone().setY(v.y + y);
 const smoothstep = (t: number) => t * t * (3 - 2 * t);
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
-/** コース上の位置から各視点を計算する。位置は実寸（m）で指定してブロックに換算する */
+/** コース定義の視点（実寸 m で指定）をブロックに換算する */
 function computeViews(track: CourseTrack): Record<ViewId, View> {
   const mpb = track.def.metersPerBlock;
   const m = (meters: number) => meters / mpb;
-  const at = (sMeters: number, latMeters = 0) => track.frameAt(m(sMeters), m(latMeters)).position;
+  const spot = (p: CourseSpot) => UP(track.frameAt(m(p.s), m(p.lateral)).position, p.up);
+  const v = track.def.views;
+  const vec = (a: [number, number, number]) => new THREE.Vector3(m(a[0]), m(a[1]), m(a[2]));
   return {
-    overview: { position: new THREE.Vector3(0, m(540), m(500)), target: new THREE.Vector3(0, 0, m(25)) },
-    hill: { position: UP(at(930, -70), m(18)), target: UP(at(1100, 0), 2) },
-    // ピットレーンは 4コーナー出口〜ゴール板の先まで続くので、長く見渡せる高さから
-    pit: { position: UP(at(1560, -60), m(70)), target: at(1690, 30) },
-    finish: { position: UP(at(30, -20), 3), target: UP(at(1800, 5), 2) },
+    overview: { position: vec(v.overview.position), target: vec(v.overview.target) },
+    hill: { position: spot(v.hill.from), target: spot(v.hill.to) },
+    pit: { position: spot(v.pit.from), target: spot(v.pit.to) },
+    finish: { position: spot(v.finish.from), target: spot(v.finish.to) },
   };
 }
 
@@ -280,10 +282,11 @@ export class CameraRig {
     const desired = new THREE.Vector3();
     const look = new THREE.Vector3();
     if (this.followStyle === 'broadcast') {
-      // 内馬場側（進行方向の右）の高い所から、馬とその周りのコースを見下ろす。
+      // 内馬場側（右回りなら進行方向の右、左回りなら左）の高い所から、馬とその周りのコースを見下ろす。
       // 外側にはスタンドがあり、ホームストレッチで屋根にかぶるため内側に置く
       const mpb = this.track.def.metersPerBlock;
-      const inward = new THREE.Vector3(-this.smoothDir.z, 0, this.smoothDir.x);
+      const side = this.track.side;
+      const inward = new THREE.Vector3(-this.smoothDir.z * side, 0, this.smoothDir.x * side);
       desired
         .copy(a.position)
         .addScaledVector(inward, BROADCAST_SIDE_M / mpb)

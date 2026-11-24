@@ -9,6 +9,8 @@ export enum Block {
   TurfB,
   Finish,
   Stone,
+  /** インフィールドの舗装（スタンド前やピットの石畳より明るいグレー） */
+  Concrete,
 }
 
 export interface WorldBounds {
@@ -83,15 +85,21 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
   const heights = new Float32Array(width * depth);
   const types = new Uint8Array(width * depth);
 
+  // 平らに盛る範囲：コースの幅に加えて、内側はピットレーンと厩舎の奥まで、外側はスタンドの奥まで
+  // （坂の上にピット・スタンドがあるコースでも、建物が法面に浮かないように）
+  const pitFlat = pit.lateral + pit.width / 2 + 10;
+  const standsFlat = stands.offset + 32;
   const heightOf = (s: number, lateral: number) => {
     const a = Math.abs(lateral);
-    const flat = half + 1;
+    let flat = half + 1;
+    if (lateral > 0 && track.pitLateralAt(s) !== null) flat = Math.max(flat, Math.min(pitFlat, track.pitLateralAt(s)! + pit.width / 2 + 10));
+    if (lateral < 0 && Math.abs(track.diff(s, stands.centerS)) <= stands.length / 2 + 4) flat = Math.max(flat, standsFlat);
     const k = a <= flat ? 1 : Math.max(0, 1 - (a - flat) / def.embankment);
     // ハーフブロック（0.5）刻みにして坂の段差をなめらかにする
     return Math.round(track.elevationAt(s) * k * 2) / 2;
   };
 
-  const classify = (s: number, lat: number): Block => {
+  const classify = (s: number, lat: number, x: number, z: number): Block => {
     if (Math.abs(lat) <= half) {
       if (Math.abs(track.diff(s, def.finishS)) < 0.5) return Block.Finish;
       // 進行方向の縞 × 幅方向の帯 = 市松模様の刈り込み（流れる速さが見えやすい）
@@ -100,6 +108,8 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
     }
     const pitLat = track.pitLateralAt(s);
     if (pitLat !== null && lat > half && Math.abs(lat - pitLat) <= pit.width / 2) return Block.Stone;
+    // インフィールドをグレーの舗装にするコース（芝の走路のすぐ脇は草の縁を残す）
+    if (def.infield && Math.abs(lat) > half + def.infield.verge && track.insideLoop(x, z)) return Block.Concrete;
     if (lat < -half && lat >= -stands.offset && Math.abs(track.diff(s, stands.centerS)) <= stands.length / 2) {
       return Block.Stone; // スタンド前のエプロン
     }
@@ -111,7 +121,7 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
       const { s, lateral } = track.project(bounds.minX + ix + 0.5, bounds.minZ + iz + 0.5);
       const i = iz * width + ix;
       heights[i] = heightOf(s, lateral);
-      types[i] = classify(s, lateral);
+      types[i] = classify(s, lateral, bounds.minX + ix + 0.5, bounds.minZ + iz + 0.5);
     }
   }
 
@@ -125,6 +135,7 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
     grassTop: mat(tex.grassTop),
     white: mat(tex.white),
     stone: mat(tex.stone),
+    concrete: new THREE.MeshLambertMaterial({ map: tex.stone, color: 0xd4d6d8 }),
     grassSide: mat(tex.grassSide),
     dirt: mat(tex.dirt),
   };
@@ -134,8 +145,9 @@ export function buildCourseWorld(track: CourseTrack, bounds: WorldBounds): Cours
     [Block.TurfB]: m.grassTop,
     [Block.Finish]: m.white,
     [Block.Stone]: m.stone,
+    [Block.Concrete]: m.concrete,
   };
-  const sideMat = (b: Block) => (b === Block.Stone ? m.stone : m.grassSide);
+  const sideMat = (b: Block) => (b === Block.Stone ? m.stone : b === Block.Concrete ? m.concrete : m.grassSide);
 
   const builders = new Map<THREE.Material, FaceBuilder>();
   const builder = (material: THREE.Material) => {

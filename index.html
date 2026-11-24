@@ -4,8 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Formula Derby</title>
+    <!--
+      読み込み直後（スクリプトが地形を作っている間）に白い画面が出ないよう、最低限の見た目だけ先に書いておく。
+      #boot-cover は最初の 1 フレームを描いたら main.ts がフェードアウトさせる。コース切替の時も同じ幕を出してから読み込み直す
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #101820; overflow: hidden; }
+      #boot-cover {
+        position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+        color: #fff; font-family: system-ui, sans-serif; background: radial-gradient(ellipse at center, #22344a 0%, #101820 70%);
+        transition: opacity 0.35s ease;
+      }
+      #boot-cover b { font-size: 40px; letter-spacing: 2px; text-shadow: 0 3px 0 #000; }
+      #boot-cover span { color: #ffd23a; font-size: 14px; }
+      #boot-cover.hidden { opacity: 0; pointer-events: none; }
+    </style>
   </head>
   <body>
+    <div id="boot-cover"><b>Formula Derby</b><span id="boot-text">コースを読み込み中…</span></div>
     <div id="app"></div>
 
     <!-- 左パネル：ミニマップ（上）と順位表（下） -->
@@ -150,11 +166,51 @@
       </div>
     </div>
 
+    <!-- 予選結果 -->
+    <div id="qualifying-screen">
+      <div class="result-box">
+        <div class="result-head"><b>QUALIFYING</b><span>予選結果（1周タイムアタック）</span><span class="q-course" id="q-course"></span></div>
+        <div class="result-body">
+          <div id="q-table"></div>
+          <div id="q-teams"></div>
+        </div>
+        <div class="q-note">※ 予選は全12頭を本戦と同じ物理・AI騎手で1頭ずつ走らせる高速シミュレーションです（自分の馬もAIが騎乗）。<br>
+          1周目はウォームアップ、2周目のタイムで順位を決めます。予選順 = 枠順（ポールポジション = 1番・最内）。</div>
+        <div class="result-buttons">
+          <button id="q-start">決勝スタート</button>
+          <button id="q-redo">予選をやり直す</button>
+          <button id="q-title">タイトルへ戻る</button>
+        </div>
+      </div>
+    </div>
+
     <!-- タイトル（モード選択） -->
     <div id="title-screen">
       <div class="title-box">
         <h1>Formula Derby</h1>
-        <p class="sub">京都・芝外回り（右回り）・5周・12頭</p>
+        <p class="sub" id="title-sub">京都・芝外回り（右回り）・5周・12頭</p>
+        <!-- レース設定（コース・周回数・予選） -->
+        <div class="settings">
+          <div class="set-row">
+            <span class="k">コース</span>
+            <div class="opts" id="set-course"></div>
+          </div>
+          <div class="set-desc" id="set-course-desc"></div>
+          <div class="set-row">
+            <span class="k">周回数</span>
+            <div class="opts">
+              <button data-laps="5"><b>5周</b><small>スプリント</small></button>
+              <button data-laps="20"><b>20周</b><small>本格戦（1〜2ストップ作戦）</small></button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="k">予選</span>
+            <div class="opts">
+              <button data-qual="1"><b>予選あり</b><small>1周タイムアタックで枠順・ピット決定</small></button>
+              <button data-qual="0"><b>予選なし</b><small>ランダム枠順</small></button>
+            </div>
+          </div>
+        </div>
         <div class="menu">
           <button id="btn-race">
             <b>シンプルレース</b>

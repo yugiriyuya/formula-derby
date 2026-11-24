@@ -413,6 +413,150 @@ body:not([data-mode='title']) #title-screen {
   color: #e6e6e6;
 }
 
+/* タイトルのレース設定 */
+#title-screen .settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 18px;
+  text-align: left;
+}
+#title-screen .set-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#title-screen .set-row .k {
+  width: 56px;
+  color: #bbb;
+  font-size: 13px;
+}
+#title-screen .opts {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+}
+#title-screen .opts button {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  font: inherit;
+  color: #ddd;
+  text-align: left;
+  background: #2a2f38;
+  border: 2px solid #555;
+  border-radius: 0;
+  cursor: pointer;
+}
+#title-screen .opts button b {
+  font-size: 14px;
+}
+#title-screen .opts button small {
+  font-size: 11px;
+  color: #aaa;
+}
+#title-screen .opts button.active {
+  color: #fff;
+  background: #6b4a12;
+  border-color: #ffd23a;
+}
+#title-screen .opts button.active small {
+  color: #ffe9a8;
+}
+#title-screen .set-desc {
+  margin: -2px 0 2px 66px;
+  font-size: 11px;
+  color: #aaa;
+}
+#title-screen .busy {
+  margin-top: 12px;
+  color: #ffd23a;
+}
+
+/* ---------- 予選結果 ---------- */
+#qualifying-screen {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+#qualifying-screen.show {
+  display: flex;
+}
+body.q-shown #title-screen,
+body.q-shown #hud,
+body.q-shown #spectator-panel,
+body.q-shown #race-hud,
+body.q-shown #left-panel,
+body.q-shown #start-lights,
+body.q-shown #center-msg {
+  display: none;
+}
+#qualifying-screen .q-course {
+  margin-left: auto;
+  color: #ccc;
+  font-size: 13px;
+}
+#qualifying-screen .result-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+#q-table table,
+#q-teams table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+#q-table th,
+#q-table td,
+#q-teams th,
+#q-teams td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: right;
+  white-space: nowrap;
+}
+#q-table th,
+#q-teams th {
+  color: #9aa;
+  font-size: 11px;
+  font-weight: 600;
+}
+#q-table .l,
+#q-teams .l {
+  text-align: left;
+}
+#q-table tr.pole td {
+  background: rgba(255, 210, 58, 0.14);
+}
+#q-table tr.player td b {
+  color: #ffd23a;
+}
+#q-teams .pit-no {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 4px;
+  font-weight: 900;
+  color: #111;
+  text-align: center;
+  background: #ffd23a;
+}
+#q-teams .exit {
+  font-size: 10px;
+  color: #ffd23a;
+}
+#qualifying-screen .q-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #999;
+  line-height: 1.6;
+}
+
 /* ---------- 馬番バッジ（枠色） ---------- */
 .post-badge {
   display: inline-block;

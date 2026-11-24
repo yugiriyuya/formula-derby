@@ -59,7 +59,7 @@ export class ResultScreen {
       return `<div class="b-row"><span class="b-pos">${r.position}</span><span class="b-num">${r.postNumber}</span><span class="b-margin">${margin}</span></div>`;
     });
     this.board.innerHTML = `
-      <div class="b-head"><span class="b-lamp">確定</span><span class="b-title">京都 芝外回り ${race.laps}周</span></div>
+      <div class="b-head"><span class="b-lamp">確定</span><span class="b-title">${esc(race.track.def.shortName)} ${race.laps}周</span></div>
       ${boardRows.join('')}
       <div class="b-foot">タイム ${fmtTime(topTime)}</div>`;
 

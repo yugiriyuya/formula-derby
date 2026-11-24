@@ -117,7 +117,14 @@ export class RaceHorse {
   /** 走行アニメーションの位相 */
   gallopPhase = 0;
   /** 停止するピットボックス前の s（僚馬と重ならないよう少しずらす） */
-  readonly pitBoxS: number;
+  pitBoxS: number;
+  /** ピットボックスの番号（ピットレーンの入口側から 0, 1, …。予選の結果で変わる） */
+  garageIndex: number;
+  /** 周回数に合わせた調整（20 周では蹄鉄の摩耗・スタミナの消耗を緩める）。Race.setLaps で設定 */
+  shoeWearScale = 1;
+  staminaScale = 1;
+  /** スタート時に履く蹄鉄（AI の作戦で決める。null なら出走表のとおり） */
+  startShoeOverride: HorseshoeType | null = null;
 
   /** ゴール板を通過した時に呼ばれる */
   onCrossLine?: (horse: RaceHorse) => void;
@@ -137,14 +144,26 @@ export class RaceHorse {
     readonly track: CourseTrack,
     readonly entry: EntryData,
     /** ピットボックスの番号（コンストラクターの並び順） */
-    readonly garageIndex: number,
+    garageIndex: number,
     readonly garageCount: number,
     /** 同じ厩舎の前で止まる位置のずらし幅（ブロック） */
-    boxOffset = 0,
+    private readonly boxOffset = 0,
   ) {
     this.shoe = entry.startShoe;
     this.nextShoe = this.defaultNextShoe();
+    this.garageIndex = garageIndex;
     this.pitBoxS = track.wrap(track.garageS(garageIndex, garageCount) + boxOffset);
+  }
+
+  /** ピットボックスを割り当て直す（予選の結果） */
+  assignGarage(index: number) {
+    this.garageIndex = index;
+    this.pitBoxS = this.track.wrap(this.track.garageS(index, this.garageCount) + this.boxOffset);
+  }
+
+  /** ピットの番号（1 = ピット出口にいちばん近い有利なボックス） */
+  get pitNumber(): number {
+    return this.garageCount - this.garageIndex;
   }
 
   /**
@@ -164,7 +183,7 @@ export class RaceHorse {
     this.lateralVelocity = 0;
     this.speed = 0;
     this.stamina = 100;
-    this.shoe = this.entry.startShoe;
+    this.shoe = this.startShoeOverride ?? this.entry.startShoe;
     this.shoeWear = 0;
     this.nextShoe = this.defaultNextShoe();
     this.pitRequested = false;
@@ -456,7 +475,7 @@ export class RaceHorse {
         // スリップストリーム中は風よけで消耗が大きく減る
         // 脚質：逃げ・先行はハイペースでも消耗が少なく、差し・追込は道中に消耗しやすい
         const styleDrain = this.paceLevel === 'high' ? this.style.highPaceDrain : this.style.cruiseDrain;
-        rate *= pace.drain * styleDrain * C.staminaDrainScale * (1 - C.slipstreamDrainCut * this.slipstream);
+        rate *= pace.drain * styleDrain * C.staminaDrainScale * this.staminaScale * (1 - C.slipstreamDrainCut * this.slipstream);
       } else rate = Math.max(-C.staminaRecoverMax * pace.recover, rate * 0.5 * pace.recover);
       this.stamina = Math.min(100, Math.max(0, this.stamina - rate * dt));
     }
@@ -468,7 +487,7 @@ export class RaceHorse {
     this.s = track.wrap(this.s + ds);
     this.distance += ds;
     this.gallopPhase += ds * mpb * C.gallopPhasePerMeter;
-    this.shoeWear = Math.min(1, this.shoeWear + (ds / track.length) * HORSESHOES[this.shoe].wearPerLap);
+    this.shoeWear = Math.min(1, this.shoeWear + (ds / track.length) * HORSESHOES[this.shoe].wearPerLap * this.shoeWearScale);
 
     if (track.diff(prevS, def.finishS) < 0 && track.diff(this.s, def.finishS) >= 0) {
       this.lineCrossings++;

@@ -16,11 +16,13 @@ const lambert = (color: number) => new THREE.MeshLambertMaterial({ color });
 /**
  * コースのフレームに合わせたローカル座標のグループを作る。
  * ローカル +x = 進行方向、+z = コース内側、-z = 外側。
+ * 左回りのコースでは内側が進行方向の左になるので、z を反転（鏡写し）する。文字を描いた面には使わないこと。
  */
-function placeOnTrack(frame: TrackFrame, y: number): THREE.Group {
+function placeOnTrack(frame: TrackFrame, y: number, side: 1 | -1): THREE.Group {
   const g = new THREE.Group();
   g.position.set(frame.position.x, y, frame.position.z);
   g.rotation.y = Math.atan2(-frame.dir.z, frame.dir.x);
+  g.scale.z = side;
   return g;
 }
 
@@ -28,7 +30,7 @@ function placeOnTrack(frame: TrackFrame, y: number): THREE.Group {
 function buildStands(track: CourseTrack, topAt: TopAt): THREE.Group {
   const { centerS, length, offset } = track.def.stands;
   const frame = track.frameAt(centerS, 0);
-  const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z));
+  const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z), track.side);
 
   const concrete = lambert(0xbdbdbd);
   const seatColors = [lambert(0x2e5aa8), lambert(0x3a6cc4)];
@@ -62,8 +64,33 @@ function buildStands(track: CourseTrack, topAt: TopAt): THREE.Group {
   return g;
 }
 
-/** ピットレーン沿いの厩舎（ピットボックス）。コンストラクターごとに 1 棟 */
-function buildGarages(track: CourseTrack, topAt: TopAt): THREE.Group {
+/** ピット番号の札（常にカメラの方を向く。左回りのコースで文字が裏返らないようスプライトにする） */
+function pitSign(text: string): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#ffd23a';
+  ctx.fillRect(0, 0, 128, 64);
+  ctx.fillStyle = '#111';
+  ctx.font = 'bold 40px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 64, 35);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+  sprite.scale.set(4, 2, 1);
+  return sprite;
+}
+
+/** 厩舎の並びを塗り替える：order[i] = ピットレーンの入口側から i 番目の厩舎を使うコンストラクター */
+export interface GarageRow {
+  paint(order: readonly string[] | null): void;
+}
+
+/** ピットレーン沿いの厩舎（ピットボックス）。コンストラクターごとに 1 棟。出口側が 1 番ピット */
+function buildGarages(track: CourseTrack, topAt: TopAt): { group: THREE.Group; row: GarageRow } {
   const pit = track.def.pitLane;
   const group = new THREE.Group();
   const count = CONSTRUCTORS.length;
@@ -73,12 +100,14 @@ function buildGarages(track: CourseTrack, topAt: TopAt): THREE.Group {
   const lateral = pit.lateral + pit.width / 2 + 0.5 + depth / 2;
   const wallMat = lambert(0xd9c7a0);
   const openMat = lambert(0x3a2a1a);
+  const teamMats: THREE.MeshLambertMaterial[] = [];
 
   CONSTRUCTORS.forEach((c, i) => {
     // 馬が停止する位置（track.garageS）と同じ s に建てる
     const frame = track.frameAt(track.garageS(i, count), lateral);
-    const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z));
+    const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z), track.side);
     const teamMat = lambert(c.color);
+    teamMats.push(teamMat);
     const w = Math.min(span - 2, 14);
     // 面順: +x, -x, +y(屋根), -y, +z(裏), -z(ピットレーン側 = 開口部)
     const body = box(w, height, depth, [wallMat, wallMat, teamMat, wallMat, wallMat, openMat]);
@@ -88,14 +117,28 @@ function buildGarages(track: CourseTrack, topAt: TopAt): THREE.Group {
     awning.position.set(0, height, -(depth / 2 + 1.2));
     g.add(awning);
     group.add(g);
+    // ピット番号の札（屋根の上、ピットレーン側）
+    const sign = pitSign(`PIT ${count - i}`);
+    const sp = track.frameAt(track.garageS(i, count), lateral - depth / 2).position;
+    sign.position.set(sp.x, topAt(frame.position.x, frame.position.z) + height + 2.2, sp.z);
+    group.add(sign);
   });
-  return group;
+  const row: GarageRow = {
+    paint(order) {
+      CONSTRUCTORS.forEach((c, i) => {
+        const id = order ? order[i] : c.id;
+        const team = CONSTRUCTORS.find((t) => t.id === id) ?? c;
+        teamMats[i].color.setHex(team.color);
+      });
+    },
+  };
+  return { group, row };
 }
 
 /** ゴール板（外ラチ側のポール） */
 function buildFinishPost(track: CourseTrack, topAt: TopAt): THREE.Group {
   const frame = track.frameAt(track.def.finishS, -(track.railLateral + 1));
-  const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z));
+  const g = placeOnTrack(frame, topAt(frame.position.x, frame.position.z), track.side);
   g.name = 'finish-post'; // ゴール前リプレイ（写真判定カメラ）では視線を遮るので隠す
   const pole = box(0.3, 6, 0.3, lambert(0xffffff));
   pole.position.y = 3;
@@ -130,6 +173,8 @@ function buildTrees(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): THRE
       Math.abs(track.diff(s, def.stands.centerS)) < def.stands.length / 2 + 10 && lateral > -(def.stands.offset + 40);
     const infield = lateral > infieldMin;
     if (!((outside && !nearStands) || infield)) continue;
+    // インフィールドを舗装したコースでは、舗装の上には木を植えない
+    if (def.infield && track.insideLoop(x, z)) continue;
     if (spots.some(({ p }) => Math.abs(p.x - x) < 5 && Math.abs(p.z - z) < 5)) continue;
     spots.push({ p: new THREE.Vector3(x, topAt(x, z), z), k: 1 + rand() * 0.8 });
   }
@@ -151,13 +196,14 @@ function buildTrees(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): THRE
   return g;
 }
 
-export function buildStructures(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): THREE.Group {
+export function buildStructures(track: CourseTrack, topAt: TopAt, bounds: WorldBounds): { group: THREE.Group; garages: GarageRow } {
   const g = new THREE.Group();
+  const garages = buildGarages(track, topAt);
   g.add(
     buildStands(track, topAt),
-    buildGarages(track, topAt),
+    garages.group,
     buildFinishPost(track, topAt),
     buildTrees(track, topAt, bounds),
   );
-  return g;
+  return { group: g, garages: garages.row };
 }

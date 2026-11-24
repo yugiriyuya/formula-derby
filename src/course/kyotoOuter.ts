@@ -33,6 +33,9 @@ const S_4C_EXIT = S_3C + Math.PI * RADIUS; // 1494 4コーナー出口
 export const KYOTO_OUTER: CourseDefinition = {
   id: 'kyoto-outer',
   name: '京都・芝外回り（右回り）',
+  shortName: '京都 芝外回り',
+  description: '右回り・約1,894m。3コーナーの淀の坂と、約400mの最後の直線',
+  direction: 'right',
   metersPerBlock: MPB,
   // ゴール板はホームストレッチ（南側）上。西向き（-x）に走る。
   start: { x: M(STRAIGHT / 2 - 400), z: M(RADIUS), headingDeg: 180 },
@@ -66,6 +69,7 @@ export const KYOTO_OUTER: CourseDefinition = {
     garageEnd: M(S_4C_EXIT + 350),
   },
   stands: { centerS: M(1894 - 60), length: M(220), offset: M(HALF + 12) },
+  markers: { furlong: 200, small: 50 },
   labels: [
     { text: 'ゴール', s: 0, lateral: -M(HALF + 12), height: 14 },
     { text: '1コーナー', s: M(S_1C + 118), lateral: 0, height: 10 },
@@ -79,4 +83,12 @@ export const KYOTO_OUTER: CourseDefinition = {
     { text: 'ホームストレッチ', s: M(S_4C_EXIT + 60), lateral: -M(8), height: 8 },
     { text: 'スタンド', s: M(1894 - 60), lateral: -M(HALF + 45), height: 30 },
   ],
+  // 確認用の視点（m。up はブロック）
+  views: {
+    overview: { position: [0, 540, 500], target: [0, 0, 25] },
+    hill: { from: { s: 930, lateral: -70, up: M(18) }, to: { s: 1100, lateral: 0, up: 2 }, label: '淀の坂' },
+    // ピットレーンは 4コーナー出口〜ゴール板の先まで続くので、長く見渡せる高さから
+    pit: { from: { s: 1560, lateral: -60, up: M(70) }, to: { s: 1690, lateral: 30, up: 0 } },
+    finish: { from: { s: 30, lateral: -20, up: 3 }, to: { s: 1800, lateral: 5, up: 2 } },
+  },
 };

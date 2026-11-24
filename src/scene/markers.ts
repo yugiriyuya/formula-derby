@@ -3,9 +3,6 @@ import type { CourseTrack } from '../course/CourseTrack';
 
 type TopAt = (x: number, z: number) => number;
 
-/** ハロン棒の間隔（m）と、その間に立てる小さな距離標の間隔（m） */
-const FURLONG = 200;
-const SMALL_MARKER = 50;
 
 const lambert = (color: number) => new THREE.MeshLambertMaterial({ color });
 
@@ -52,6 +49,8 @@ export function buildDistanceMarkers(track: CourseTrack, topAt: TopAt): THREE.Gr
     return mesh;
   };
 
+  // ハロン棒の間隔（m）と、その間に立てる小さな距離標の間隔（m）はコース定義から
+  const { furlong: FURLONG, small: SMALL_MARKER } = def.markers;
   const lapMeters = track.length * mpb;
   for (let remain = SMALL_MARKER; remain < lapMeters - 1; remain += SMALL_MARKER) {
     const s = track.wrap(def.finishS - remain / mpb);

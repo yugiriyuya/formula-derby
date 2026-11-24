@@ -7,7 +7,7 @@ export interface TrackFrame {
   position: THREE.Vector3;
   /** 進行方向（水平, 正規化済み） */
   dir: THREE.Vector3;
-  /** 進行方向の右 = コース内側（水平, 正規化済み） */
+  /** コース内側（lateral が + の向き。水平, 正規化済み）。右回りなら進行方向の右、左回りなら左 */
   right: THREE.Vector3;
 }
 
@@ -20,6 +20,8 @@ const smoothstep = (t: number) => t * t * (3 - 2 * t);
 export class CourseTrack {
   readonly def: CourseDefinition;
   readonly length: number;
+  /** 内側が進行方向の右なら 1（右回り）、左なら -1（左回り）。lateral とワールド座標の変換に掛ける */
+  readonly side: 1 | -1;
   private readonly ss: number[] = [];
   private readonly xs: number[] = [];
   private readonly zs: number[] = [];
@@ -30,6 +32,7 @@ export class CourseTrack {
 
   constructor(def: CourseDefinition) {
     this.def = def;
+    this.side = def.direction === 'left' ? -1 : 1;
     let x = def.start.x;
     let z = def.start.z;
     let phi = THREE.MathUtils.degToRad(def.start.headingDeg);
@@ -80,6 +83,21 @@ export class CourseTrack {
     return p !== null && Math.abs(this.railLateral - p) < this.def.pitLane.width / 2 + 0.5;
   }
 
+  /** (x, z) がコースの中心線で囲まれた内側（インフィールド）にあるか（多角形の内外判定） */
+  insideLoop(x: number, z: number): boolean {
+    const n = this.xs.length;
+    let inside = false;
+    const STEP = 8; // 4 ブロックおきの点で十分（ワールドの全マスで呼ぶので軽くする）
+    for (let i = 0, j = n - STEP; i < n; j = i, i += STEP) {
+      const xi = this.xs[i];
+      const zi = this.zs[i];
+      const xj = this.xs[(j + n) % n];
+      const zj = this.zs[(j + n) % n];
+      if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
   /** 中心線の範囲（ワールドの大きさを決めるのに使う） */
   extent(): { minX: number; maxX: number; minZ: number; maxZ: number } {
     return {
@@ -90,9 +108,9 @@ export class CourseTrack {
     };
   }
 
-  /** s 地点の曲率（1/半径, 右カーブが +） */
+  /** s 地点の曲率（1/半径）。コース内側へ曲がるカーブが +（右回りなら右カーブ、左回りなら左カーブ） */
   curvatureAt(s: number): number {
-    return this.ks[this.indexAt(s).i];
+    return this.ks[this.indexAt(s).i] * this.side;
   }
 
   /** s 地点の勾配（登りが +） */
@@ -166,7 +184,7 @@ export class CourseTrack {
       0,
       this.dzs[i] + (this.dzs[j] - this.dzs[i]) * t,
     ).normalize();
-    const right = new THREE.Vector3(-dir.z, 0, dir.x);
+    const right = new THREE.Vector3(-dir.z * this.side, 0, dir.x * this.side);
     const position = new THREE.Vector3(x, this.elevationAt(s), z).addScaledVector(right, lateral);
     return { position, dir, right };
   }
@@ -198,7 +216,7 @@ export class CourseTrack {
     const oz = z - this.zs[best];
     const dx = this.dxs[best];
     const dz = this.dzs[best];
-    return { s: this.wrap(this.ss[best] + ox * dx + oz * dz), lateral: ox * -dz + oz * dx };
+    return { s: this.wrap(this.ss[best] + ox * dx + oz * dz), lateral: (ox * -dz + oz * dx) * this.side };
   }
 
   /** s 地点でのピットレーン中心の lateral。ピット区間外なら null（ゴール板を跨ぐ区間にも対応） */

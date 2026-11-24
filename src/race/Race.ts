@@ -3,7 +3,7 @@ import type { TrackCondition } from '../data/horseshoes';
 import { CONSTRUCTORS, teammateIndex, type EntryData } from '../data/roster';
 import { AIController, type AIContext } from './AIController';
 import type { TurfWear } from './TurfWear';
-import { RACE_CONFIG } from './raceConfig';
+import { RACE_CONFIG, raceFormat, type RaceFormat } from './raceConfig';
 import { NO_CONTROLS, RaceHorse, type HorseControls } from './RaceHorse';
 import { SafetyHorse, type SafetyState } from './SafetyHorse';
 import { ReplayRecorder } from './ReplayRecorder';
@@ -150,12 +150,23 @@ export class Race {
   /** 前のフレームで触れていた 2 頭の組 */
   private touchingPairs = new Set<string>();
 
+  /** 周回数に合わせた調整（蹄鉄の摩耗・芝の荒れ・スタミナ・AI のピット作戦） */
+  format: RaceFormat;
+  /**
+   * 予選の結果で決めた枠順（先頭 = 1 枠 = 最内）。null なら毎レース抽選。
+   * 同じ条件で再レースした時もこの並びを使う。
+   */
+  gridOrder: RaceHorse[] | null = null;
+  /** 予選のタイムアタック用：AI はピットに入らない */
+  noPitStops = false;
+
   constructor(
     readonly track: CourseTrack,
-    readonly laps: number,
+    public laps: number,
     entries: readonly EntryData[],
     playerEntryId: string | null,
   ) {
+    this.format = raceFormat(laps);
     this.safety = new SafetyHorse(track);
     for (const e of entries) {
       const garageIndex = CONSTRUCTORS.findIndex((c) => c.id === e.constructorId);
@@ -186,6 +197,27 @@ export class Race {
     for (const h of this.horses) if (h !== this.player) this.ai.set(h, new AIController(h));
     this.focus = this.player ?? this.horses[0];
     this.restart();
+  }
+
+  /** 周回数を変える（次の restart から有効）。周回数に合わせて摩耗・スタミナを調整する */
+  setLaps(laps: number) {
+    this.laps = laps;
+    this.format = raceFormat(laps);
+    for (const h of this.horses) {
+      h.shoeWearScale = this.format.shoeWear;
+      h.staminaScale = this.format.stamina;
+    }
+  }
+
+  /**
+   * ピットボックスの割り当て。garageOrder[i] = ピットレーンの入口側から i 番目のボックスを使うコンストラクター。
+   * null なら出走表のコンストラクター順（既定）。予選ありでは、予選の速いチームほど出口に近いボックスになる。
+   */
+  assignGarages(garageOrder: readonly string[] | null) {
+    for (const h of this.horses) {
+      const i = garageOrder ? garageOrder.indexOf(h.entry.constructorId) : -1;
+      h.assignGarage(i >= 0 ? i : CONSTRUCTORS.findIndex((c) => c.id === h.entry.constructorId));
+    }
   }
 
   get spectating(): boolean {
@@ -221,8 +253,13 @@ export class Race {
     this.wear?.reset();
     this.buildGate();
 
-    // 枠順（馬番）は毎レース抽選
-    const order = shuffle([...this.horses], Math.random);
+    // 枠順（馬番）：予選ありなら予選の順、なしなら毎レース抽選
+    const order = this.gridOrder && this.gridOrder.length === this.horses.length ? [...this.gridOrder] : shuffle([...this.horses], Math.random);
+    for (const h of this.horses) {
+      h.startShoeOverride = null;
+      h.shoeWearScale = this.format.shoeWear;
+      h.staminaScale = this.format.stamina;
+    }
     order.forEach((h, i) => {
       const slot = this.gate[i];
       h.reset(slot.frontS - GATE_STALL_LENGTH / 2, slot.lateral);
@@ -230,10 +267,14 @@ export class Race {
     });
 
     // AI の作戦（ピットに入る周など）。僚馬同士は別の周にピットインする
-    const pitLaps = new Map<string, number>();
+    const pitLaps = new Map<string, number[]>();
     for (const [h, ai] of this.ai) {
-      ai.plan(this.laps, Math.random, pitLaps.get(h.entry.constructorId) ?? null);
-      pitLaps.set(h.entry.constructorId, ai.pitLap);
+      ai.plan(this.laps, Math.random, pitLaps.get(h.entry.constructorId) ?? [], this.format);
+      if (this.noPitStops) {
+        ai.pitLap = 0;
+        ai.pitLaps = [];
+      }
+      pitLaps.set(h.entry.constructorId, ai.pitLaps);
     }
     for (const h of this.horses) this.splits.set(h, []);
     this.standings = [...this.horses];
@@ -661,7 +702,7 @@ export class Race {
     const wear = this.wear;
     if (!wear || this.phase === 'countdown') return;
     const half = this.track.def.trackWidth / 2;
-    const step = RACE_CONFIG.turfWearPerStep;
+    const step = RACE_CONFIG.turfWearPerStep * this.format.turfWear;
     for (const h of this.horses) {
       if (h.inPit || h.retired || h.speed < 0.5 || Math.abs(h.lateral) > half) continue;
       const f = this.track.frameAt(h.s, h.lateral);

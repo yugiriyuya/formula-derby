@@ -67,8 +67,10 @@ export class StartGate {
       const f = track.frameAt(slot.frontS - L / 2, slot.lateral);
       const g = new THREE.Group();
       g.position.set(f.position.x, topAt(f.position.x, f.position.z), f.position.z);
-      g.rotation.y = Math.atan2(-f.dir.z, f.dir.x); // ローカル +x = 進行方向, +z = 内側
+      g.rotation.y = Math.atan2(-f.dir.z, f.dir.x); // ローカル +x = 進行方向, +z = 右（右回りでは内側）
       const w = slot.width;
+      // 外側の z の向き（右回りは -z、左回りは +z）。札の文字が裏返らないよう、鏡写しにはせず位置だけ変える
+      const out = -track.side;
 
       // 仕切り：各枠の外側だけ描く（隣の枠と二重にならないように）。最内枠だけ内側も描く
       const partition = (z: number) => {
@@ -76,8 +78,8 @@ export class StartGate {
         p.position.set(0, (STALL_HEIGHT - 0.3) / 2, z);
         g.add(p);
       };
-      partition(-w / 2);
-      if (k === 0) partition(w / 2);
+      partition((out * w) / 2);
+      if (k === 0) partition((-out * w) / 2);
 
       // 屋根の梁と枠番の札（札は梁の上に立てて、騎手の目の前に下がらないようにする）
       const beam = box(L, 0.3, w, frame);

@@ -180,3 +180,32 @@ export const PACE_LEVELS: Record<PaceLevel, { label: string; ratio: number; drai
   /** ハイペース：最高速度いっぱい。消耗が増える */
   high: { label: 'ハイペース', ratio: 1.0, drain: 1.15, recover: 1.0 },
 };
+
+/**
+ * 周回数に合わせた調整。基準は 5 周（すべて 1 倍）。
+ * 20 周では、蹄鉄の摩耗・芝の荒れ・スタミナの消耗を緩めて、長丁場でも
+ * 「1 ストップ（ハード中心で長く引っ張る）」と「2 ストップ（ソフトで速く走ってこまめに替える）」の両方が成り立つようにする。
+ *   - 蹄鉄：ハード 1 本で約 10 周（摩耗 約 6%/周）、ソフトは約 6 周で摩耗しきる
+ *   - 芝：20 周走り終えた時の荒れ方が 5 周の時と同じくらいになる
+ *   - スタミナ：レースの長さに応じて消耗を薄める（ピットでの回復もある）
+ */
+export interface RaceFormat {
+  shoeWear: number;
+  turfWear: number;
+  stamina: number;
+  /** AI のピット回数の候補（1 = 1 ストップ, 2 = 2 ストップ）と、2 ストップを選ぶ割合 */
+  maxStops: 1 | 2;
+  twoStopChance: number;
+}
+
+export function raceFormat(laps: number): RaceFormat {
+  if (laps <= 6) return { shoeWear: 1, turfWear: 1, stamina: 1, maxStops: 1, twoStopChance: 0 };
+  const k = 5 / laps;
+  return {
+    shoeWear: Math.min(1, 10 / laps), // 20 周で 0.5
+    turfWear: Math.max(0.25, k * 1.15),
+    stamina: Math.max(0.3, Math.sqrt(k) * 0.75),
+    maxStops: laps >= 12 ? 2 : 1,
+    twoStopChance: laps >= 12 ? 0.5 : 0,
+  };
+}
