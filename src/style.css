@@ -568,7 +568,8 @@ body.q-shown #center-msg {
 }
 #qualifying-screen .q-note,
 #series-screen .q-note,
-#result-screen .q-note {
+#result-screen .q-note,
+#bet-screen .q-note {
   margin: 10px 0 0;
   font-size: 11px;
   color: #999;
@@ -1539,4 +1540,299 @@ body.series-shown #result-screen {
   height: 12px;
   margin-left: 4px;
   vertical-align: middle;
+}
+
+/* ---------- 所持金（タイトル） ---------- */
+#title-screen .title-bank {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #ddd;
+}
+#title-screen .title-bank b {
+  font-size: 20px;
+  color: #ffd23a;
+  font-variant-numeric: tabular-nums;
+}
+#title-screen .title-bank button,
+#bet-screen .result-buttons button.small {
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: #ccc;
+  background: transparent;
+  border: 1px solid #777;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+/* ---------- ベッティング画面 ---------- */
+#bet-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+#bet-screen.show {
+  display: flex;
+}
+body.betting #race-hud,
+body.betting #center-msg,
+body.betting #commentary,
+body.betting #hud,
+body.betting #spectator-panel {
+  display: none !important;
+}
+#bet-screen .result-box {
+  max-width: 98vw;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+#bet-screen .bet-title {
+  color: #ccc;
+  font-size: 13px;
+}
+#bet-screen .bet-bank {
+  margin-left: auto;
+  font-size: 13px;
+  color: #ddd;
+}
+#bet-screen .bet-bank b {
+  font-size: 18px;
+  color: #ffd23a;
+}
+.bet-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+#bet-matrix {
+  overflow-x: auto;
+}
+#bet-matrix table {
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#bet-matrix th,
+#bet-matrix td {
+  padding: 2px 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+  white-space: nowrap;
+}
+#bet-matrix thead th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa;
+}
+#bet-matrix th.hz {
+  text-align: left;
+  font-weight: 400;
+}
+#bet-matrix th.hz small {
+  margin-left: 4px;
+  font-size: 10px;
+  color: #999;
+}
+#bet-matrix th.hz .sw {
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin: 0 4px;
+  vertical-align: middle;
+}
+#bet-matrix .you {
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 900;
+  color: #111;
+  background: #ffd23a;
+}
+#bet-matrix td {
+  min-width: 29px;
+  color: #ddd;
+  cursor: pointer;
+}
+#bet-matrix td:hover {
+  outline: 2px solid #ffd23a;
+  outline-offset: -2px;
+}
+#bet-matrix td.h1 {
+  background: rgba(255, 170, 40, 0.16);
+}
+#bet-matrix td.h2 {
+  background: rgba(255, 150, 30, 0.34);
+  color: #fff;
+}
+#bet-matrix td.h3 {
+  background: rgba(255, 120, 20, 0.6);
+  color: #fff;
+  font-weight: 700;
+}
+#bet-matrix td.dnf,
+#bet-matrix th.dnf {
+  border-left: 2px solid rgba(255, 80, 80, 0.5);
+}
+#bet-matrix td.locked {
+  color: #555;
+  background: #222 !important;
+  cursor: not-allowed;
+}
+#bet-matrix td.sel {
+  outline: 2px solid #6fd17d;
+  outline-offset: -2px;
+  background: rgba(111, 209, 125, 0.35);
+}
+.bet-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 236px;
+  min-width: 236px;
+  font-size: 12px;
+}
+#bet-selection,
+#bet-slip {
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+#bet-selection .cur b.o {
+  color: #ffd23a;
+  font-size: 15px;
+}
+#bet-selection .stakes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin: 6px 0;
+}
+#bet-selection button,
+#bet-slip button {
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: #fff;
+  background: #3b3b3b;
+  border: 1px solid #777;
+  border-radius: 0;
+  cursor: pointer;
+}
+#bet-selection button.active,
+#bet-selection #bet-add {
+  background: #2f7d3a;
+  border-color: #6fd17d;
+}
+#bet-selection input {
+  width: 90px;
+  padding: 2px 4px;
+  font: inherit;
+  color: #fff;
+  background: #1c2027;
+  border: 1px solid #555;
+}
+#bet-selection .add-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#bet-slip table {
+  width: 100%;
+  border-collapse: collapse;
+}
+#bet-slip td,
+#bet-slip th {
+  padding: 2px 3px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#bet-slip th {
+  font-size: 10px;
+  color: #9aa;
+}
+.bet-side .slip-head {
+  margin-bottom: 4px;
+  font-weight: 700;
+  color: #ffd23a;
+}
+.bet-side .slip-total {
+  margin-top: 6px;
+}
+.bet-side .hint {
+  color: #999;
+  font-size: 11px;
+}
+.bet-side .neg,
+#result-bets .neg {
+  color: #ff7a6a;
+}
+#bet-confirm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- リザルト：ベッティング結果 ---------- */
+#result-bets {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  background: rgba(255, 210, 58, 0.06);
+  border: 1px solid rgba(255, 210, 58, 0.3);
+}
+#result-bets:empty {
+  display: none;
+}
+#result-bets .bets-head {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+#result-bets .bets-head b.title {
+  color: #ffd23a;
+}
+#result-bets .profit {
+  font-size: 24px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+#result-bets .profit.pos {
+  color: #6fe07d;
+  text-shadow: 0 0 10px rgba(111, 224, 125, 0.6);
+}
+#result-bets .profit.neg {
+  color: #ff7a6a;
+}
+#result-bets table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#result-bets td,
+#result-bets th {
+  padding: 2px 8px;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#result-bets th {
+  font-size: 11px;
+  color: #9aa;
+}
+#result-bets td.l,
+#result-bets th.l {
+  text-align: left;
+}
+#result-bets tr.hit td {
+  background: rgba(111, 224, 125, 0.15);
+}
+#result-bets .hitmark {
+  font-weight: 900;
+  color: #6fe07d;
 }

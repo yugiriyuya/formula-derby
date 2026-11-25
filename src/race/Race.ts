@@ -7,6 +7,7 @@ import { RACE_CONFIG, raceFormat, type RaceFormat } from './raceConfig';
 import { NO_CONTROLS, RaceHorse, type HorseControls } from './RaceHorse';
 import { SafetyHorse, type SafetyState } from './SafetyHorse';
 import { ReplayRecorder } from './ReplayRecorder';
+import { computeOddsMatrix, type OddsMatrix } from '../betting/odds';
 
 export type RacePhase = 'countdown' | 'running' | 'finished';
 export type Weather = 'sunny' | 'rain';
@@ -169,6 +170,8 @@ export class Race {
   /** 設定（エディット）：AI が走らせる馬の能力の倍率と、蹄鉄の摩耗の倍率 */
   aiAbility = 1;
   shoeWearMultiplier = 1;
+  /** レース前のオッズ表（ベッティング用。restart のたびに作り直す） */
+  oddsMatrix!: OddsMatrix;
   /** 予選のタイムアタック用：AI はピットに入らない */
   noPitStops = false;
 
@@ -552,17 +555,10 @@ export class Race {
    * 控除率 20%（払戻 80%）でオッズにする。毎レース少しだけ人気が揺れる。
    */
   private setOdds() {
-    const strength = this.horses.map((h) => {
-      const st = h.entry.horse.stats;
-      const r = st.speed * 1.0 + st.stamina * 0.55 + st.power * 0.45 + st.intelligence * 0.35 + h.entry.jockey.strategy * 0.3;
-      return r + (Math.random() - 0.5) * 0.8;
-    });
-    const weights = strength.map((r) => Math.exp(r / 1.1));
-    const total = weights.reduce((a, b) => a + b, 0);
-    this.horses.forEach((h, i) => {
-      const p = weights[i] / total;
-      h.odds = Math.max(1.1, Math.round((0.8 / p) * 10) / 10);
-    });
+    // ブックメーカーのオッズ表（全頭 × 着順 ＋ DNF）。単勝オッズと人気はその 1 着の列
+    this.oddsMatrix = computeOddsMatrix(this);
+    const m = this.oddsMatrix;
+    m.horses.forEach((h, i) => (h.odds = m.odds[i][0]));
     [...this.horses].sort((a, b) => a.odds - b.odds).forEach((h, i) => (h.popularity = i + 1));
   }
 

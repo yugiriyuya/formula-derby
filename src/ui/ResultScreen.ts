@@ -2,6 +2,7 @@ import { bracketColor, bracketOf } from '../data/brackets';
 import { CONSTRUCTORS } from '../data/roster';
 import type { Race, RaceResultRow } from '../race/Race';
 import { marginText } from './Commentary';
+import { signedYen, yen, type BetReport } from '../betting/bank';
 import { pointsBreakdown, racePoints, type RacePoints } from '../race/points';
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
@@ -51,6 +52,29 @@ export class ResultScreen {
     this.replayBtn.addEventListener('click', () => this.onReplay?.());
     document.getElementById('result-retry')!.addEventListener('click', () => this.onRetry?.());
     document.getElementById('result-title')!.addEventListener('click', () => this.onTitle?.());
+  }
+
+  /** ベッティング結果（収支レポート）。賭けていなければ空にする */
+  showBets(report: BetReport | null, balance: number, n: number) {
+    const el = document.getElementById('result-bets')!;
+    if (!report || report.bets.length === 0) {
+      el.innerHTML = '';
+      return;
+    }
+    const label = (p: number | 'DNF') => (p === 'DNF' ? 'DNF' : p === n ? `${p}着（最下位）` : `${p}着`);
+    const rows = report.bets
+      .map(
+        (b) => `<tr class="${b.hit ? 'hit' : ''}"><td class="l">${b.postNumber}番 ${esc(b.horseName)}</td><td>${label(b.pick)}</td><td>${label(b.actual)}</td>
+          <td>${b.odds.toFixed(1)}</td><td>${yen(b.stake)}</td><td>${b.hit ? '<span class="hitmark">的中</span>' : 'ハズレ'}</td><td>${b.hit ? yen(b.payout) : '—'}</td></tr>`,
+      )
+      .join('');
+    const cls = report.profit > 0 ? 'pos' : report.profit < 0 ? 'neg' : '';
+    el.innerHTML = `
+      <div class="bets-head"><b class="title">ベッティング結果（収支レポート）</b>
+        <span>賭け金 ${yen(report.totalStake)} ・ 払戻 ${yen(report.totalPayout)}</span>
+        <span>今回の収支 <span class="profit ${cls}">${signedYen(report.profit)}</span></span>
+        <span>所持金 <b>${yen(balance)}</b></span></div>
+      <table><thead><tr><th class="l">馬</th><th>予想着順</th><th>実際の着順</th><th>オッズ</th><th>賭け金</th><th>結果</th><th>払戻金</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   get visible(): boolean {

@@ -164,6 +164,8 @@
     <div id="result-screen">
       <div class="result-box">
         <div class="result-head"><b>RESULT</b><span>レース結果</span></div>
+        <!-- ベッティング結果（収支レポート）。賭けた時だけ表示 -->
+        <div id="result-bets"></div>
         <div class="result-body">
           <div id="result-board"></div>
           <div id="result-table"></div>
@@ -193,6 +195,27 @@
           <button id="series-next">次のレースへ</button>
           <button id="series-back">リザルトに戻る</button>
           <button id="series-title">タイトルへ戻る</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ベッティング（投票）：全頭 × 着順 ＋ DNF のオッズ表 -->
+    <div id="bet-screen">
+      <div class="result-box">
+        <div class="result-head"><b>BETTING</b><span>ブックメーカー オッズ表（着順 × 全頭）</span><span id="bet-title" class="bet-title"></span>
+          <span class="bet-bank">所持金 <b class="bank-balance">¥0</b></span></div>
+        <div class="bet-body">
+          <div id="bet-matrix"></div>
+          <div class="bet-side">
+            <div id="bet-selection"></div>
+            <div id="bet-slip"></div>
+          </div>
+        </div>
+        <div class="q-note">オッズ＝払戻の倍率（控除率 約20%）。色の濃いセルほど低倍率（そうなりやすい）。自分が騎乗する馬の DNF は買えません。払戻＝賭け金×オッズ。</div>
+        <div class="result-buttons">
+          <button id="bet-confirm">ベット確定してレース開始</button>
+          <button id="bet-skip">スキップして出走</button>
+          <button id="bet-refinance" class="small">資金リセット（再融資）</button>
         </div>
       </div>
     </div>
@@ -237,6 +260,7 @@
     <div id="title-screen">
       <div class="title-box">
         <h1>Formula Derby</h1>
+        <div class="title-bank">所持金 <b class="bank-balance">¥1,000,000</b><button id="title-refinance" title="所持金を ¥1,000,000 に戻す">資金リセット（再融資）</button></div>
         <p class="sub" id="title-sub">京都・芝外回り（右回り）・5周</p>
         <!-- レース設定（コース・周回数・予選） -->
         <div class="settings">

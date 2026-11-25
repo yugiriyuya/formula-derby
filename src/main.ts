@@ -6,6 +6,8 @@ import { loadSettings, saveSettings, type LapsOption } from './data/settings';
 import { runQualifying, type QualifyingResult } from './race/Qualifying';
 import { QualifyingScreen } from './ui/QualifyingScreen';
 import { SeriesScreen } from './ui/SeriesScreen';
+import { BettingScreen } from './ui/BettingScreen';
+import { Bankroll, settleBets, yen, type Bet, type BetReport } from './betting/bank';
 import { EditScreen } from './ui/EditScreen';
 import { aiFactor, applyEdits, loadEdits } from './data/edits';
 import { isFinished, loadSeries, newSeries, randomWind, recordRound, saveSeries, type SeriesState } from './race/Series';
@@ -47,6 +49,8 @@ import type { ReplayHorseFrame } from './race/ReplayRecorder';
  *   ?weather=rain      天候を指定（sunny / rain。?mode= と一緒に使う）
  *   ?field=16          出走頭数（12 / 16）
  *   ?mode=preview      コース下見で開始
+ *   &bet=0             レース前のベッティング画面を出さない（?ff= の時も出さない）
+ *   &bet=demo          早送りの前に、オッズ表の 1 番人気の 1 着・2 着などに試しに賭ける（払戻の確認用）
  *   ?edit=1&tab=horses 設定（エディット）画面を開く
  *   &series=1          早送りでレースが終わったら、シリーズ戦の 1 戦目として順位画面を開く（final = 全戦終了の画面。保存はしない）
  *   ?laps=1            周回数を変更（既定 5）
@@ -165,6 +169,15 @@ const commentary = new Commentary();
 const resultScreen = new ResultScreen();
 const qualifyingScreen = new QualifyingScreen();
 const seriesScreen = new SeriesScreen();
+// 所持金（ブラウザに自動保存）とベッティング画面
+const bank = new Bankroll();
+const bettingScreen = new BettingScreen(bank);
+const refreshBank = () => document.querySelectorAll('.bank-balance').forEach((e) => (e.textContent = yen(bank.balance)));
+bank.onChange = refreshBank;
+refreshBank();
+/** 今のレースの買い目（スタート時に所持金から引き済み）と、精算の結果 */
+let currentBets: Bet[] = [];
+let betReport: BetReport | null = null;
 const editScreen = new EditScreen();
 const sfx = new Sfx();
 
@@ -349,6 +362,12 @@ const showResults = () => {
   }
   resultScreen.setSeries(inSeries);
   resultScreen.show(race);
+  // ベッティングの精算（1 レースにつき 1 回）：的中した買い目の払戻（賭け金 × オッズ）を所持金に加える
+  if (race.phase === 'finished' && currentBets.length > 0 && !betReport) {
+    betReport = settleBets(currentBets, race);
+    bank.deposit(betReport.totalPayout);
+  }
+  resultScreen.showBets(betReport, bank.balance, race.horses.length);
 };
 
 const hideResults = () => {
@@ -493,9 +512,12 @@ const updateReplayCamera = (frames: ReplayHorseFrame[], dt: number) => {
 };
 
 /** 同じモードのままレースをやり直す */
-const restartRace = () => {
+const restartRace = (offerBets = true) => {
   stopReplay(false);
   hideResults();
+  // 前のレースの買い目は、途中でやめた場合も戻さない（賭け金は没収）
+  currentBets = [];
+  betReport = null;
   hideSeriesScreen();
   seriesRecorded = false;
   resultShown = false;
@@ -518,6 +540,24 @@ const restartRace = () => {
   }
   rig.snapFollow();
   standings.refresh();
+  if (offerBets) openBetting();
+};
+
+/** レース前のベッティング画面（全頭 × 着順のオッズ表）。開いている間はスタートを止めておく */
+const bettingEnabled = params.get('bet') !== '0' && !params.has('ff');
+function openBetting() {
+  if (!bettingEnabled || (appMode !== 'race' && appMode !== 'spectate')) return;
+  const w = race.weather === 'rain' ? '雨' : '晴れ';
+  bettingScreen.show(race.oddsMatrix, appMode === 'race' ? race.player : null, `${COURSE.shortName} ${race.laps}周 ${race.horses.length}頭 ${w}`);
+}
+bettingScreen.onConfirm = (bets) => {
+  const total = bets.reduce((a, b) => a + b.stake, 0);
+  if (!bank.withdraw(total)) return;
+  currentBets = bets;
+  betReport = null;
+};
+bettingScreen.onSkip = () => {
+  currentBets = [];
 };
 
 /** 予選の結果（枠順・ピットボックス）をレースに反映する。null なら抽選の枠順・既定のピット */
@@ -576,15 +616,19 @@ const beginRace = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
   controls.autoRotate = false;
   race.configure(mode === 'race' ? playerEntry.id : null);
   setSpeed(1);
-  restartRace();
+  restartRace(false);
   const style = followStyle && rig.followStyles.includes(followStyle) ? followStyle : mode === 'spectate' ? 'broadcast' : 'chase';
   rig.follow(style);
   refreshLabels();
   refreshJockeyHeads();
+  openBetting();
 };
 
 /** タイトル（モード選択）に戻る。背景ではコース全景をゆっくり回す */
 const showTitle = () => {
+  bettingScreen.hide();
+  currentBets = [];
+  betReport = null;
   stopReplay(false);
   hideResults();
   qualifyingScreen.hide();
@@ -784,6 +828,11 @@ refreshSeriesButtons();
 onClick(document.getElementById('btn-edit')!, () => editScreen.show(edits));
 editScreen.onApply = () => reloadWithCourse(COURSE.id);
 
+// 所持金の資金リセット（再融資）
+onClick(document.getElementById('title-refinance')!, () => {
+  if (confirm('所持金を ¥1,000,000 にリセット（再融資）しますか？')) bank.reset();
+});
+
 // タイトル
 onClick(document.getElementById('btn-preview')!, startCoursePreview);
 onClick(document.getElementById('btn-race')!, () => startMode('race'));
@@ -880,6 +929,21 @@ if (initialMode === 'race' || initialMode === 'spectate') {
     rig.startPreview(params.get('preview') === 'pit', s !== null ? Number(s) : undefined);
   }
   // 確認用：?ff=秒数 でレースを早送りしてから表示（馬場の荒れ・ペナルティなどの確認に）
+  // 確認用：&bet=demo なら、オッズ表の 1 番人気の 1 着・2 着、2 番人気の 1 着、最下位人気の最下位に 1 万円ずつ賭ける
+  if (params.get('bet') === 'demo') {
+    const m = race.oddsMatrix;
+    const byWin = [...m.horses.keys()].sort((a, b) => m.odds[a][0] - m.odds[b][0]);
+    const mk = (i: number, k: number): Bet => ({
+      entryId: m.horses[i].entry.id,
+      horseName: m.horses[i].entry.horse.name,
+      postNumber: m.horses[i].postNumber,
+      pick: k === m.n ? 'DNF' : k + 1,
+      odds: m.odds[i][k],
+      stake: 10000,
+    });
+    currentBets = [mk(byWin[0], 0), mk(byWin[0], 1), mk(byWin[1], 0), mk(byWin[byWin.length - 1], m.n - 1)];
+    bank.withdraw(40000);
+  }
   const ff = numParam('ff');
   if (ff) {
     const crashAt = numParam('crash');
@@ -1000,7 +1064,8 @@ renderer.setAnimationLoop((time) => {
     return;
   }
 
-  const racing = appMode === 'race' || appMode === 'spectate';
+  // ベッティング画面を開いている間は、スタート前のまま止めておく（キー操作も受け付けない）
+  const racing = (appMode === 'race' || appMode === 'spectate') && !bettingScreen.visible;
   if (racing) {
     if (pressed.has('KeyC')) rig.toggleFollowStyle();
     // シリーズ戦ではやり直しできない
@@ -1013,7 +1078,7 @@ renderer.setAnimationLoop((time) => {
   const focusWhipsBefore = race.focus.whipsThisLap;
   const focusBefore = race.focus;
 
-  if (appMode === 'race' && race.player) {
+  if (racing && appMode === 'race' && race.player) {
     if (pressed.has('KeyP')) race.player.togglePitRequest();
     if (pressed.has('KeyT')) race.player.cycleNextShoe();
     // 前進は自動。W/S はペース（巡航速度とスタミナの使い方）を 1 段階ずつ上げ下げする
@@ -1021,7 +1086,7 @@ renderer.setAnimationLoop((time) => {
     if (shift !== 0) shiftPace(race.player, shift);
     if (autoRun) race.player.paceLevel = 'high';
     race.update(dt, playerControls(race.player, input.steer() * track.side, pressed.has('Space'), race.condition));
-  } else if (appMode === 'spectate') {
+  } else if (racing && appMode === 'spectate') {
     if (pressed.has('ArrowLeft')) setFocus(neighbor(-1));
     if (pressed.has('ArrowRight')) setFocus(neighbor(1));
     // 2 倍速は 1 フレームに 2 回進める（dt を倍にするより挙動が安定する）
