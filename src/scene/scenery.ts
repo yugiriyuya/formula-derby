@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CourseTrack } from '../course/CourseTrack';
 import type { SceneryItem } from '../course/types';
+import { buildSpectators, seatRow, seededRandom, type Seat } from './spectators';
 import type { WorldBounds } from './courseWorld';
 
 type TopAt = (x: number, z: number) => number;
@@ -39,6 +40,9 @@ export function buildScenery(track: CourseTrack, topAt: TopAt, bounds: WorldBoun
   const solid: BoxInstance[] = [];
   const glow: BoxInstance[] = [];
   const group = new THREE.Group();
+  /** 観客席（スタンドの段の上）の観客 */
+  const seats: Seat[] = [];
+  const seatRand = seededRandom(97);
 
   /** (x, z) を中心に半径 r（ブロック）の物を置いてよいか（コース・ピット・スタンド・ワールドの外を避ける） */
   const clear = (x: number, z: number, r: number) => {
@@ -194,6 +198,11 @@ export function buildScenery(track: CourseTrack, topAt: TopAt, bounds: WorldBoun
             const p = track.frameAt(s, lat).position;
             if (!clear(p.x, p.z, 2)) continue;
             solid.push({ x: p.x, y: topAt(p.x, p.z), z: p.z, w: m(16), h: 1 + t * 1.3, d: 2.2, rot: along(s), color: t % 2 ? 0xd84a3a : 0x2e5aa8 });
+            // 観客（コースの方を向いて座る）
+            const f = track.frameAt(s, lat);
+            const facing = f.right.clone().multiplyScalar(-sign);
+            const center = new THREE.Vector3(p.x, topAt(p.x, p.z) + 1 + t * 1.3, p.z).addScaledVector(facing, 0.35);
+            seatRow(seats, center, f.dir, facing, m(16) - 0.6, seatRand, 0.7);
           }
         }
         break;
@@ -246,5 +255,6 @@ export function buildScenery(track: CourseTrack, topAt: TopAt, bounds: WorldBoun
   };
   toMesh(solid, new THREE.MeshLambertMaterial({ color: 0xffffff }), true);
   toMesh(glow, new THREE.MeshBasicMaterial({ color: 0xffffff }), false);
+  group.add(buildSpectators(seats, 41));
   return group;
 }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { CourseTrack } from '../course/CourseTrack';
 import type { CourseSpot } from '../course/types';
+import { STAND_CAMERA_TIER } from '../scene/structures';
 
 export type ViewId = 'overview' | 'hill' | 'pit' | 'finish';
 /** manual = カメラを外から直接動かす（ゴール前リプレイの中継カメラなど）。リグは何もしない */
@@ -30,7 +31,15 @@ export interface FollowAnchor {
   speed: number;
   /** 走りの位相（カメラの揺れを脚の運びに合わせる） */
   gallopPhase: number;
+  /** ピットボックスで停止中（蹄鉄交換を横から映すピットカメラにする） */
+  pitStopped?: boolean;
 }
+
+// --- ピットカメラ（ピットボックスで止まっている間：コース側の少し高い所から、馬と 4 人のクルーを横から映す） ---
+const PIT_CAM_SIDE_M = 7.5;
+const PIT_CAM_BACK_M = 3;
+const PIT_CAM_HEIGHT_M = 3.6;
+const PIT_CAM_FOV = 50;
 
 interface View {
   position: THREE.Vector3;
@@ -115,6 +124,10 @@ export class CameraRig {
   /** 中継俯瞰カメラのなめらかにした位置・注視点 */
   private readonly broadcastPos = new THREE.Vector3();
   private readonly broadcastLook = new THREE.Vector3();
+  /** ピットカメラ中か（抜ける時に元の視点へなめらかに戻す） */
+  private pitCam = false;
+  private readonly pitCamPos = new THREE.Vector3();
+  private readonly pitCamLook = new THREE.Vector3();
   followStyle: FollowStyle = 'chase';
   /** false の間（コース下見）はプレビューを終えても追従に戻らず全景へ */
   followEnabled = true;
@@ -276,19 +289,67 @@ export class CameraRig {
     this.updateFov(dt, targetFov);
   }
 
-  /** スタンド最上段あたり（ゴール板の少し手前・外側の高い所）の位置 */
+  /**
+   * ピットカメラ：ピットレーンのコース側（ガレージの反対側）の少し高い所から、止まっている馬を横から映す。
+   * ガレージはピットレーンの内側にあるので、カメラは外側（コース側）に置けば建物にかぶらない
+   */
+  private updatePitCam(dt: number, a: FollowAnchor): number {
+    const mpb = this.track.def.metersPerBlock;
+    const side = this.track.side;
+    const outward = new THREE.Vector3(a.dir.z * side, 0, -a.dir.x * side);
+    const desired = a.position
+      .clone()
+      .addScaledVector(outward, PIT_CAM_SIDE_M / mpb)
+      .addScaledVector(a.dir, -PIT_CAM_BACK_M / mpb);
+    desired.y = a.position.y + PIT_CAM_HEIGHT_M / mpb;
+    const look = a.position.clone().setY(a.position.y + 0.7);
+    if (!this.pitCam) {
+      this.pitCam = true;
+      this.pitCamPos.copy(this.camera.position);
+      this.pitCamLook.copy(this.followLook);
+    }
+    // 視点を切り替えた直後・カメラが遠い所にある時（早送りの後など）は、すぐにピットカメラの位置へ
+    if (this.followFresh || this.pitCamPos.distanceTo(desired) > 30) {
+      this.pitCamPos.copy(desired);
+      this.pitCamLook.copy(look);
+    }
+    const k = 1 - Math.exp(-dt * 4);
+    this.pitCamPos.lerp(desired, k);
+    this.pitCamLook.lerp(look, k);
+    this.camera.position.copy(this.pitCamPos);
+    this.followLook.copy(this.pitCamLook);
+    this.camera.lookAt(this.followLook);
+    this.controls.target.copy(this.followLook);
+    this.followFresh = false;
+    return PIT_CAM_FOV;
+  }
+
+  /**
+   * スタンド中段の観客席（14 段の 7 段目・スタンド中央）に座った観客の目の高さ。
+   * 段の寸法は structures.ts の buildStands と同じ（段の奥行き 2・高さ 0.8 + 段 × 1.2 ブロック）
+   */
   private standEye(): THREE.Vector3 {
-    const def = this.track.def;
-    const mpb = def.metersPerBlock;
-    const st = def.stands;
-    const p = this.track.frameAt(st.centerS, -(st.offset + 18 / mpb)).position;
-    p.y = this.track.elevationAt(st.centerS) + 34 / mpb;
+    const st = this.track.def.stands;
+    const tier = STAND_CAMERA_TIER;
+    const p = this.track.frameAt(st.centerS, -(st.offset + tier * 2 + 1)).position;
+    p.y = this.track.elevationAt(st.centerS) + 0.8 + tier * 1.2 + 2.2;
     return p;
   }
 
   /** 追従カメラを動かし、その時の目標視野角を返す */
   private updateFollow(dt: number, a: FollowAnchor): number {
     if (this.followStyle !== 'topdown') this.camera.up.set(0, 1, 0);
+    // ピットボックスで停止中は、鳥瞰以外ならピットカメラ（蹄鉄交換のクルーが確実に見える）
+    if (a.pitStopped && this.followStyle !== 'topdown') return this.updatePitCam(dt, a);
+    if (this.pitCam) {
+      // ピットカメラから抜けた：今のカメラ位置から元の視点へなめらかに戻す
+      this.pitCam = false;
+      this.enterFrom.position.copy(this.camera.position);
+      this.enterFrom.look.copy(this.followLook);
+      this.enterBlend = 0;
+      this.broadcastPos.copy(this.camera.position);
+      this.broadcastLook.copy(this.followLook);
+    }
     if (this.followStyle === 'stand') {
       // スタンドから：位置は固定、注目している馬を首を振って追い、遠い時はズームで寄る
       const eye = this.standEye();
@@ -302,7 +363,7 @@ export class CameraRig {
       this.enterBlend = 1;
       const dist = eye.distanceTo(this.followLook);
       // 画面の縦に約 24m（馬群）が入る視野角。遠いほど狭く（ズーム）
-      return THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(10 / dist)), 6, 55);
+      return THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(10 / dist)), 9, 55);
     }
     if (this.followStyle === 'topdown') {
       // 鳥瞰：コース全体の真上から真下を見る（北が画面の上）

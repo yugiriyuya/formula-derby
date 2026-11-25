@@ -32,7 +32,7 @@ export const RACE_CONFIG = {
   // --- 速度（m/s, m/s²） ---
   /** 最高速度 = base + speed能力 × perStat （能力 7 で約 70km/h） */
   topSpeedBase: 17.6,
-  topSpeedPerStat: 0.28,
+  topSpeedPerStat: 0.14,
   /** 加速度 = base + power能力 × perStat */
   accelBase: 3.6,
   accelPerStat: 0.24,
@@ -93,8 +93,17 @@ export const RACE_CONFIG = {
   slopeEffectPerStat: 0.12,
 
   // --- スタミナ（0〜100） ---
-  /** 最高速度に対してこの割合を超えるとスタミナを消耗、下回ると回復 */
+  /**
+   * 最高速度に対してこの割合を超えると速さに応じて消耗が増える。
+   * レース中の回復はない（ピットイン完了時の pitStaminaBonus だけ）。どんなにゆっくりでも staminaMinDrain（/秒）は減り続け、
+   * 例外は「折り合い＋スリップストリーム中」だけ（±0）
+   */
   staminaCruiseRatio: 0.85,
+  staminaMinDrain: 0.035,
+  /** スタミナの減り方の基準にする 1 周の長さ（m）。これより長いコースは 1 秒あたりの減りを小さくする */
+  staminaRefLapM: 1800,
+  /** スタミナが 0 になると脚がもつれて落馬（DNF） */
+  staminaCollapse: true,
   staminaDrainBase: 4.0,
   /** 登り坂での追加消耗 = 勾配 × この値 × (1.2 - power能力 × 0.05) */
   staminaHillDrain: 8,
@@ -104,9 +113,41 @@ export const RACE_CONFIG = {
   staminaDrainScale: 0.7,
   /** スタミナがこの値を下回ると最高速度が落ち始める */
   staminaTiredThreshold: 15,
-  staminaTiredPenalty: 0.15,
+  staminaTiredPenalty: 0.05,
   /** AI が最後の直線のムチ用に温存しておくスタミナ */
   aiStaminaReserve: 28,
+  /**
+   * AI のスタミナの読み違い：読み違える騎手の割合 = chance + (10 − 戦略値) × perStat。
+   * 読み違える量 = min + 乱数 × range ×（0.5 + 攻め気）。スタミナ切れ落馬（終盤の波乱）の起きやすさ
+   */
+  aiMisreadChance: 0.15,
+  aiMisreadPerStat: 0.03,
+  aiMisreadMin: 6,
+  aiMisreadRange: 12,
+
+  // --- 馬群の接戦（ラバーバンド） ---
+  /**
+   * 先頭から離された馬ほど最高速度が上がる（馬群が追いつく流れ）：
+   * 上乗せ = (先頭との差 m − rubberBandFreeM) × rubberBandPerM、最大 rubberBandMax。この上乗せの分はスタミナを使わない
+   */
+  rubberBandFreeM: 24,
+  /** 最終周は馬群をさらに詰める（この距離より離された分から上乗せ） */
+  rubberBandFinalLapFreeM: 20,
+  rubberBandPerM: 0.006,
+  rubberBandMax: 0.14,
+  /** 先頭（または前に風よけのいない逃げ馬）は空気抵抗をまともに受け、スタミナの減りがこの倍率 */
+  leadDragDrain: 1.12,
+
+  // --- 差し・追込の末脚 ---
+  /**
+   * 最終周の残り kickDistanceM（最後の直線が長ければ直線の入口から）で、スタミナが kickMinStamina 以上残っている
+   * 差し・追込は最高速度・加速・ムチの効きが上がる（脚質ごとの kick × コースの直線の長さ）
+   */
+  kickDistanceM: 600,
+  kickMinStamina: 18,
+  /** 直線の長さによる末脚の効き = 直線(m) / kickStraightRefM（0.45〜1.5） */
+  kickStraightRefM: 380,
+  kickAccelMultiplier: 1.6,
 
   // --- スリップストリーム（前の馬の真後ろで風よけ） ---
   /** 前の馬との距離（m）と横のずれ（m）がこの範囲なら発動 */
@@ -130,7 +171,7 @@ export const RACE_CONFIG = {
   whipCooldown: 1.0,
   whipStaminaCost: 6,
   /** 最高速度の上乗せ = base + 賢さ能力 × perStat（能力 7 で約 +21%） */
-  whipBoostBase: 0.15,
+  whipBoostBase: 0.09,
   whipBoostPerStat: 0.008,
   /** 叩いた瞬間の速度の上乗せ（m/s）と、効いている間の加速度の倍率 */
   whipImpulse: 1.5,
@@ -149,12 +190,23 @@ export const RACE_CONFIG = {
   pitApproachDistance: 140,
   pitApproachSteerRate: 6,
   pitLaneSteerRate: 12,
-  /** 蹄鉄交換の作業時間 = base - ピットクルーの腕 × pitCrewPerPoint - 騎手の戦略値 × perStat（秒）。クルー 5〜9 で約 3.2〜2.4 秒 */
-  pitWorkBase: 4.6,
-  pitCrewPerPoint: 0.22,
-  pitWorkPerStat: 0.05,
-  /** ピット停止中のスタミナ回復（/秒） */
-  pitStaminaRecover: 3,
+  /**
+   * 蹄鉄交換（4 人のクルー）の作業時間。ピットクルーの腕（1〜10）と運で 3 段階に分かれる（pitWorkTime を参照）。
+   *  - 成功（FAST PIT）：約 2.0 秒（1.8〜2.4）
+   *  - 普通：約 3.0 秒（2.6〜3.4）
+   *  - 遅い／ミス（SLOW PIT）：4.0 秒以上、最悪のミスで 10.0 秒
+   * 確率は腕 1 → 成功 5% / ミス 45%、腕 10 → 成功 60% / ミス 6% のあいだを直線で結ぶ
+   */
+  pitFastChance: [0.05, 0.6] as const,
+  pitSlowChance: [0.45, 0.06] as const,
+  pitFastTime: [1.8, 2.4] as const,
+  pitNormalTime: [2.6, 3.4] as const,
+  pitSlowMin: 4.0,
+  pitSlowMax: 10.0,
+  /** 騎手の戦略値 1 につき作業時間を何秒縮めるか（5 が基準） */
+  pitWorkPerStat: 0.03,
+  /** ピットイン完了時のスタミナ回復（レース中にスタミナが回復するのはここだけ） */
+  pitStaminaBonus: 30,
 
   // --- 演出 ---
   /** 走りのアニメーション：1m 進むごとの脚の位相（完歩 約 7m） */
@@ -183,7 +235,7 @@ export const RACE_CONFIG = {
 export type PaceLevel = 'relaxed' | 'normal' | 'high';
 export const PACE_ORDER: PaceLevel[] = ['relaxed', 'normal', 'high'];
 export const PACE_LEVELS: Record<PaceLevel, { label: string; ratio: number; drain: number; recover: number }> = {
-  /** 折り合い：最高速度の 84%。消耗が少なく回復しやすい */
+  /** 折り合い：最高速度の 84%。消耗が少ない（スリップストリーム中は ±0。レース中の回復はない） */
   relaxed: { label: '折り合い', ratio: 0.84, drain: 0.8, recover: 1.5 },
   /** 標準：最高速度の 93% */
   normal: { label: '標準', ratio: 0.93, drain: 1.0, recover: 1.0 },
@@ -209,13 +261,14 @@ export interface RaceFormat {
 }
 
 export function raceFormat(laps: number): RaceFormat {
-  if (laps <= 6) return { shoeWear: 1, turfWear: 1, stamina: 1, maxStops: 1, twoStopChance: 0 };
+  // 5 周：スタミナはピットでしか回復しないので、最後の直線で脚を使い切るかどうかの勝負になる消耗（1.3）
+  if (laps <= 6) return { shoeWear: 1, turfWear: 1, stamina: 1.2, maxStops: 1, twoStopChance: 0 };
   const k = 5 / laps;
   return {
     // 10 周で 0.7（ソフト約 4.5 周・ハード約 12 周）、20 周で 0.5
     shoeWear: laps >= 12 ? Math.min(1, 10 / laps) : 0.7,
     turfWear: Math.max(0.25, k * 1.15),
-    stamina: Math.max(0.3, Math.sqrt(k) * 0.75),
+    stamina: Math.max(0.3, Math.sqrt(k) * 0.68),
     maxStops: laps >= 12 ? 2 : 1,
     twoStopChance: laps >= 12 ? 0.5 : 0,
   };

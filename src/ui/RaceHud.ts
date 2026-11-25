@@ -35,6 +35,7 @@ export class RaceHud {
     lpTime: $('lp-time'),
     speed: $('h-speed'),
     stamina: $('h-stamina'),
+    staminaWarn: $('h-stamina-warn'),
     whip: $('h-whip'),
     shoe: $('h-shoe'),
     wear: $('h-wear'),
@@ -116,6 +117,8 @@ export class RaceHud {
 
     e.stamina.style.width = `${h.stamina}%`;
     e.stamina.className = h.stamina < 30 ? 'low' : h.stamina < 60 ? 'mid' : '';
+    // スタミナは 0 で落馬（回復はピットイン完了時の +30 だけ）
+    e.staminaWarn.textContent = h.finished || h.retired ? '' : h.stamina < 8 ? '落馬寸前！' : h.stamina < 20 ? '残りわずか' : '';
 
     e.whip.textContent = `${h.whipsThisLap} / ${RACE_CONFIG.whipPenaltyCount}`;
     e.whip.classList.toggle('warn', h.whipsThisLap >= RACE_CONFIG.whipPenaltyCount);

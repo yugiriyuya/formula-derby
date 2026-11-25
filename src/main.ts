@@ -7,6 +7,8 @@ import { runQualifying, type QualifyingResult } from './race/Qualifying';
 import { QualifyingScreen } from './ui/QualifyingScreen';
 import { SeriesScreen } from './ui/SeriesScreen';
 import { BettingScreen } from './ui/BettingScreen';
+import { OddsTrials, TRIAL_CONFIG } from './betting/trials';
+import { blendTrials } from './betting/odds';
 import { Bankroll, settleBets, yen, type Bet, type BetReport } from './betting/bank';
 import { EditScreen } from './ui/EditScreen';
 import { aiFactor, applyEdits, loadEdits } from './data/edits';
@@ -22,6 +24,7 @@ import { buildStructures } from './scene/structures';
 import { buildLabels } from './scene/labels';
 import { createClouds, createLights, SKY_COLOR } from './scene/sky';
 import { CameraRig, FOLLOW_STYLE_LABEL, type CameraMode, type FollowStyle, type ViewId } from './camera/CameraRig';
+import { RUNNING_STYLES } from './data/runningStyles';
 import { constructorOf, ENTRIES, fieldEntries, PLAYER_ENTRY_ID, teamsOf, type FieldSize } from './data/roster';
 import { buildScenery } from './scene/scenery';
 import { Race } from './race/Race';
@@ -36,6 +39,7 @@ import { StandingsPanel } from './ui/StandingsPanel';
 import { Minimap } from './ui/Minimap';
 import { StartGate } from './scene/StartGate';
 import { TurfParticles } from './scene/TurfParticles';
+import { PitCrewView } from './scene/PitCrew';
 import { Commentary, marginText } from './ui/Commentary';
 import { ResultScreen } from './ui/ResultScreen';
 import { Sfx } from './audio/Sfx';
@@ -49,6 +53,7 @@ import type { ReplayHorseFrame } from './race/ReplayRecorder';
  *   ?weather=rain      天候を指定（sunny / rain。?mode= と一緒に使う）
  *   ?field=16          出走頭数（12 / 16）
  *   ?mode=preview      コース下見で開始
+ *   &pitstop=0.8       ?ff= と一緒に：注目している馬がピットに止まって 0.8 秒のところで早送りを止める（&pit=1 で自分の馬をピットへ）
  *   &bet=0             レース前のベッティング画面を出さない（?ff= の時も出さない）
  *   &bet=demo          早送りの前に、オッズ表の 1 番人気の 1 着・2 着などに試しに賭ける（払戻の確認用）
  *   ?edit=1&tab=horses 設定（エディット）画面を開く
@@ -57,7 +62,7 @@ import type { ReplayHorseFrame } from './race/ReplayRecorder';
  *   ?start=1300&pit=1  スタート位置（ゴール板から何 m 地点か）を変更 / 最初からピット要求 ON
  *   ?auto=1            ペースを常にハイペースにする（確認用）
  *   ?cam=jockey        騎手視点で開始（観戦モードでは broadcast も可）
- *   ?player=5          操作する馬を出走表の番号で選ぶ（既定 1 = クロワデュノール）
+ *   ?player=5          操作する馬を出走表の番号で選ぶ（既定 1 = ドゥラメンテ）
  *   ?view=hill         コース確認用の視点で開始（overview / hill / pit / finish）
  *   ?preview=pit&s=380 コースのプレビュー走行で開始
  *   ?ff=300            レースを指定秒数だけ早送りしてから表示（?mode= と一緒に使う）
@@ -139,8 +144,9 @@ scene.add(clouds.group);
 const weatherView = new WeatherView(scene, lights, world.turf.mesh.material as THREE.Material, clouds.group, COURSE.night === true);
 
 // --- Race（出走表の全頭。誰を操作するかはモード選択で決める） ---
-// シンプルレースで操作する馬：?player=番号（出走表の番号 1〜）。指定がなければクロワデュノール
-const playerEntry = FIELD.find((e) => e.number === numParam('player')) ?? ENTRIES.find((e) => e.id === PLAYER_ENTRY_ID)!;
+// シンプルレースで操作する馬：?player=番号（出走表の番号 1〜）。指定がなければ 1 番 ドゥラメンテ
+let playerEntry =
+  FIELD.find((e) => e.number === (numParam('player') ?? settings.player)) ?? FIELD.find((e) => e.id === PLAYER_ENTRY_ID) ?? ENTRIES[0];
 const race = new Race(track, numParam('laps') ?? settings.laps ?? RACE_CONFIG.laps, FIELD, null);
 race.aiAbility = aiFactor(edits);
 race.shoeWearMultiplier = edits.shoeWear;
@@ -161,6 +167,9 @@ scene.add(turfParticles.mesh);
 const safetyModel = HorseModel.safetyHorse();
 safetyModel.root.visible = false;
 scene.add(safetyModel.root);
+// ピットインした馬の周りの 4 人のクルー（蹄鉄交換のアニメーション）
+const pitCrew = new PitCrewView(race.horses, track, world.topAt);
+scene.add(pitCrew.group);
 const hud = new RaceHud();
 const standings = new StandingsPanel(document.querySelector('#standings tbody')!, race.horses.length);
 const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, track);
@@ -204,7 +213,11 @@ const topMarkers = new Map(
 
 // --- Camera rig ---
 const rig = new CameraRig(camera, controls, track);
-rig.setFollowSource(() => horseModels.get(race.focus)!.cameraAnchor(race.focus, track, world.topAt));
+rig.setFollowSource(() => ({
+  ...horseModels.get(race.focus)!.cameraAnchor(race.focus, track, world.topAt),
+  // ピットボックスで止まっている間はピットカメラ（4 人のクルーの蹄鉄交換を横から）
+  pitStopped: race.focus.pitPhase === 'stopped' && !race.focus.retired,
+}))
 
 // --- 画面の状態（タイトル / シンプルレース / 観戦モード） ---
 /** preview = コース下見（レースは止めたまま、コースを自由に眺める） */
@@ -212,7 +225,7 @@ type AppMode = 'title' | 'race' | 'spectate' | 'preview';
 let appMode: AppMode = 'title';
 /** タイトルで選んだモード（シンプルレースで落馬して観戦に切り替わっても、R で元に戻すため） */
 let chosenMode: 'race' | 'spectate' = 'race';
-/** 観戦モードのレース進行速度（1 倍 / 2 倍） */
+/** 観戦モードのレース進行速度（1〜4 倍） */
 let speedMultiplier = 1;
 
 const mpb = COURSE.metersPerBlock;
@@ -226,7 +239,6 @@ const refreshCourseInfo = () => {
 refreshCourseInfo();
 // コース確認用の「坂」の視点ボタンはコースごとの名前
 document.querySelector<HTMLButtonElement>('[data-view="hill"]')!.textContent = `2 ${COURSE.views.hill.label}`;
-document.getElementById('title-player')!.textContent = playerEntry.horse.name;
 
 const previewButtons = document.querySelectorAll<HTMLButtonElement>('[data-preview]');
 const followButton = document.querySelector<HTMLButtonElement>('[data-follow]')!;
@@ -300,6 +312,8 @@ const startCoursePreview = () => {
   controls.autoRotate = false;
   race.configure(null);
   startGate.reset();
+  turfParticles.clear();
+  pitCrew.clear();
   rig.goTo('overview');
   refreshLabels();
 };
@@ -397,6 +411,7 @@ const startReplay = () => {
   for (const m of horseModels.values()) m.setJockeyHeadVisible(true);
   safetyModel.root.visible = false;
   turfParticles.clear();
+  pitCrew.clear();
 };
 
 const stopReplay = (backToResults = true) => {
@@ -525,6 +540,7 @@ const restartRace = (offerBets = true) => {
   race.restart();
   startGate.reset();
   turfParticles.clear();
+  pitCrew.clear();
   commentary.reset();
   sfxRead = 0;
   // 落馬で観戦に切り替わっていたら、シンプルレースに戻す
@@ -549,6 +565,30 @@ function openBetting() {
   if (!bettingEnabled || (appMode !== 'race' && appMode !== 'spectate')) return;
   const w = race.weather === 'rain' ? '雨' : '晴れ';
   bettingScreen.show(race.oddsMatrix, appMode === 'race' ? race.player : null, `${COURSE.shortName} ${race.laps}周 ${race.horses.length}頭 ${w}`);
+  startOddsTrials();
+}
+
+/**
+ * オッズの事前シミュレーション：本番と同じ条件の試走を数十回、少しずつ（1 回 35ms 程度）走らせ、
+ * 終わったら能力評価のオッズに混ぜて表を描き直す。ベッティング画面を閉じたら（スキップ・タイトルへ）やめる。
+ */
+let oddsJob = 0;
+function startOddsTrials() {
+  const job = ++oddsJob;
+  const trials = new OddsTrials(race);
+  bettingScreen.setPending(0, TRIAL_CONFIG.target);
+  const tick = () => {
+    if (job !== oddsJob || !bettingScreen.visible) return;
+    const finished = trials.step(35);
+    if (finished) {
+      race.useOdds(blendTrials(race.oddsMatrix, trials.orders));
+      bettingScreen.updateOdds(race.oddsMatrix);
+    } else {
+      bettingScreen.setPending(trials.done, TRIAL_CONFIG.target);
+      setTimeout(tick, 0);
+    }
+  };
+  setTimeout(tick, 0);
 }
 bettingScreen.onConfirm = (bets) => {
   const total = bets.reduce((a, b) => a + b.stake, 0);
@@ -624,7 +664,46 @@ const beginRace = (mode: 'race' | 'spectate', followStyle?: FollowStyle) => {
   openBetting();
 };
 
-/** タイトル（モード選択）に戻る。背景ではコース全景をゆっくり回す */
+/**
+ * ホームの背景：全頭 AI のデモレースを実際に走らせ、自動カメラで巡回する
+ * （ゲートの間はコース全景をゆっくり回し、スタート後は中継・後方・スタンドを数秒ごとに切り替えて上位の馬を映す）
+ */
+const HOME_SHOTS: FollowStyle[] = ['broadcast', 'chase', 'stand', 'broadcast', 'chase', 'stand'];
+const HOME_SHOT_SECONDS = 7;
+const homeDemo = {
+  timer: 0,
+  shot: 0,
+  reset() {
+    this.timer = 0;
+    this.shot = 0;
+  },
+  update(dt: number) {
+    if (race.phase === 'finished') {
+      race.restart();
+      startGate.reset();
+      turfParticles.clear();
+      pitCrew.clear();
+      this.reset();
+      rig.snapTo('overview');
+      controls.autoRotate = true;
+      return;
+    }
+    race.update(dt, NO_CONTROLS);
+    if (race.phase !== 'running') return;
+    this.timer -= dt;
+    if (this.timer > 0) return;
+    this.timer = HOME_SHOT_SECONDS;
+    // 上位 5 頭の中から 1 頭を選んで映す
+    const field = race.standings.filter((h) => !h.retired && !h.finished);
+    if (field.length === 0) return;
+    race.focus = field[Math.floor(Math.random() * Math.min(5, field.length))];
+    controls.autoRotate = false;
+    rig.follow(HOME_SHOTS[this.shot++ % HOME_SHOTS.length]);
+    refreshJockeyHeads();
+  },
+};
+
+/** タイトル（モード選択）に戻る。背景ではデモレースを自動カメラで巡回する */
 const showTitle = () => {
   bettingScreen.hide();
   currentBets = [];
@@ -644,14 +723,18 @@ const showTitle = () => {
   resultShown = false;
   finishedAt = null;
   commentary.reset();
+  pitCrew.clear();
   appMode = 'title';
   document.body.dataset.mode = 'title';
   race.configure(null);
   startGate.reset();
+  turfParticles.clear();
   setSpeed(1);
   rig.snapTo('overview');
   controls.autoRotate = true;
   refreshLabels();
+  document.body.classList.remove('setup-open');
+  homeDemo.reset();
 };
 
 // ボタンにフォーカスが残ると Space（ムチ）でボタンが押されてしまうので外す
@@ -681,51 +764,108 @@ const togglePreview = (viaPit: boolean) => {
   else rig.startPreview(viaPit);
 };
 
-// タイトル：レース設定（コース・周回数・予選）
+// --- ホーム → レースセットアップ ---
+// ホームでモード（シンプルレース・観戦・シリーズ戦）を選ぶと、次の画面で条件（コース・周回数・頭数・天候・予選・操作馬）を選ぶ。
+// コースと頭数は「スタート」を押すまで読み込み直さない（違えば読み込み直してから自動でスタート）
+type SetupMode = 'race' | 'spectate' | 'series';
+let setupMode: SetupMode = 'race';
+let seriesJoin: 'race' | 'spectate' = 'race';
+let pendingCourse = COURSE.id;
+let pendingField: FieldSize = FIELD.length as FieldSize;
+const setupScreen = document.getElementById('setup-screen')!;
 const titleBusy = document.createElement('div');
 titleBusy.className = 'busy';
-document.querySelector('#title-screen .title-box')!.appendChild(titleBusy);
+setupScreen.querySelector('.setup-box')!.appendChild(titleBusy);
 const courseOpts = document.getElementById('set-course')!;
 courseOpts.classList.add('courses');
 for (const c of COURSES) {
   const b = document.createElement('button');
   b.dataset.course = c.id;
-  b.innerHTML = `<b>${c.shortName}</b><small>${c.direction === 'right' ? '右回り' : '左回り'}・約${Math.round(new CourseTrack(c).length * c.metersPerBlock).toLocaleString()}m</small>`;
+  const tags = `${c.surface === 'dirt' ? '・ダート' : ''}${c.night ? '・ナイター' : ''}`;
+  b.innerHTML = `<b>${c.shortName}</b><small>${c.direction === 'right' ? '右回り' : '左回り'}・約${Math.round(new CourseTrack(c).length * c.metersPerBlock).toLocaleString()}m${tags}</small>`;
   courseOpts.appendChild(b);
 }
+// 操作馬（16 頭ぶん。12 頭立ての時は 13〜16 番は選べない）
+const playerOpts = document.getElementById('set-player')!;
+for (const e of ENTRIES) {
+  const b = document.createElement('button');
+  b.dataset.player = String(e.number);
+  b.innerHTML = `<b>${e.number}. ${e.horse.name}</b><small>${RUNNING_STYLES[e.horse.style].label}・速${e.horse.stats.speed} 久${e.horse.stats.stamina}</small>`;
+  b.title = `${constructorOf(e).name}・騎手 ${e.jockey.name}`;
+  playerOpts.appendChild(b);
+}
+const SETUP_TEXT: Record<SetupMode, [string, string]> = {
+  race: ['シンプルレース', '自分の馬に騎乗して 1 戦を走ります。条件を選んでスタート（ベッティング画面へ）'],
+  spectate: ['観戦モード', '全頭 AI のレースを観戦。オッズ表で勝負してからスタート'],
+  series: ['シリーズ戦', '全 10 コースを順に転戦するチャンピオンシップ（天候は各戦で抽選）'],
+};
 const refreshTitleSettings = () => {
-  document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) => b.classList.toggle('active', b.dataset.course === COURSE.id));
-  document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) => b.classList.toggle('active', Number(b.dataset.laps) === race.laps));
+  const course = courseById(pendingCourse);
+  document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) => b.classList.toggle('active', b.dataset.course === pendingCourse));
+  document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) => b.classList.toggle('active', Number(b.dataset.laps) === settings.laps));
   document.querySelectorAll<HTMLButtonElement>('[data-qual]').forEach((b) => b.classList.toggle('active', (b.dataset.qual === '1') === settings.qualifying));
   document.querySelectorAll<HTMLButtonElement>('[data-weather]').forEach((b) => b.classList.toggle('active', b.dataset.weather === settings.weather));
-  document.querySelectorAll<HTMLButtonElement>('[data-field]').forEach((b) => b.classList.toggle('active', Number(b.dataset.field) === FIELD.length));
+  document.querySelectorAll<HTMLButtonElement>('[data-field]').forEach((b) => b.classList.toggle('active', Number(b.dataset.field) === pendingField));
+  document.querySelectorAll<HTMLButtonElement>('[data-series-mode]').forEach((b) => b.classList.toggle('active', b.dataset.seriesMode === seriesJoin));
+  if (settings.player > pendingField) settings.player = 1;
+  document.querySelectorAll<HTMLButtonElement>('[data-player]').forEach((b) => {
+    const n = Number(b.dataset.player);
+    b.classList.toggle('active', n === settings.player);
+    b.disabled = n > pendingField;
+  });
   document.getElementById('set-course-desc')!.textContent =
-    `${COURSE.description}　風：${windName(COURSE.wind.fromDeg)} 約${COURSE.wind.speed}m/s・雨の確率 ${Math.round(COURSE.rainChance * 100)}%`;
+    `${course.description}　風：${windName(course.wind.fromDeg)} 約${course.wind.speed}m/s・雨の確率 ${Math.round(course.rainChance * 100)}%`;
+  // 画面の見出し・どの行を出すか
+  const [title, desc] = SETUP_TEXT[setupMode];
+  document.getElementById('setup-title')!.textContent = title;
+  document.getElementById('setup-desc')!.textContent = desc;
+  setupScreen.dataset.mode = setupMode;
+  setupScreen.classList.toggle('with-player', setupMode === 'race' || (setupMode === 'series' && seriesJoin === 'race'));
+  document.getElementById('setup-start')!.textContent =
+    setupMode === 'series' ? '新しく始める ▶' : settings.qualifying ? '予選へ ▶' : 'ベッティングへ ▶';
+  // ホームの表示（前回の条件・操作馬）
   const weatherText = settings.weather === 'random' ? '天候ランダム' : settings.weather === 'rain' ? '雨' : '晴れ';
-  document.getElementById('title-sub')!.textContent = `${COURSE.name}・${race.laps}周・${FIELD.length}頭・${weatherText}・${settings.qualifying ? '予選あり' : '予選なし'}`;
-  refreshCourseInfo();
+  document.getElementById('title-sub')!.textContent =
+    `${COURSE.name}・${settings.laps}周・${FIELD.length}頭・${weatherText}・${settings.qualifying ? '予選あり' : '予選なし'}`;
 };
+const openSetup = (mode: SetupMode) => {
+  setupMode = mode;
+  pendingCourse = COURSE.id;
+  pendingField = FIELD.length as FieldSize;
+  refreshSeriesButtons();
+  refreshTitleSettings();
+  document.body.classList.add('setup-open');
+};
+const closeSetup = () => document.body.classList.remove('setup-open');
 document.querySelectorAll<HTMLButtonElement>('[data-course]').forEach((b) =>
   onClick(b, () => {
-    if (b.dataset.course === COURSE.id) return;
-    reloadWithCourse(b.dataset.course!);
+    pendingCourse = b.dataset.course!;
+    refreshTitleSettings();
   }),
 );
 document.querySelectorAll<HTMLButtonElement>('[data-field]').forEach((b) =>
   onClick(b, () => {
-    const size = Number(b.dataset.field) as FieldSize;
-    if (size === FIELD.length) return;
-    // 出走表が変わる（馬・ピットボックス・ゲート）ので読み込み直す
-    reloadWithCourse(COURSE.id, size);
+    pendingField = Number(b.dataset.field) as FieldSize;
+    refreshTitleSettings();
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-player]').forEach((b) =>
+  onClick(b, () => {
+    settings.player = Number(b.dataset.player);
+    saveSettings(settings);
+    refreshTitleSettings();
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-series-mode]').forEach((b) =>
+  onClick(b, () => {
+    seriesJoin = b.dataset.seriesMode as 'race' | 'spectate';
+    refreshTitleSettings();
   }),
 );
 document.querySelectorAll<HTMLButtonElement>('[data-weather]').forEach((b) =>
   onClick(b, () => {
     settings.weather = b.dataset.weather as typeof settings.weather;
     saveSettings(settings);
-    // タイトルの背景にも天候を反映（ランダムは晴れで表示）
-    race.setWeather(settings.weather === 'rain' ? 'rain' : 'sunny');
-    weatherView.set(race.weather);
     refreshTitleSettings();
   }),
 );
@@ -733,8 +873,6 @@ document.querySelectorAll<HTMLButtonElement>('[data-laps]').forEach((b) =>
   onClick(b, () => {
     settings.laps = Number(b.dataset.laps) as LapsOption;
     saveSettings(settings);
-    race.setLaps(settings.laps);
-    race.restart();
     refreshTitleSettings();
   }),
 );
@@ -745,11 +883,36 @@ document.querySelectorAll<HTMLButtonElement>('[data-qual]').forEach((b) =>
     refreshTitleSettings();
   }),
 );
-// タイトルの背景：コースの基本の風と、設定の天候（ランダムは晴れで表示）
+/** セットアップの「スタート」：コース・頭数が今と違えば読み込み直して、読み込み後に自動でスタート */
+const startFromSetup = () => {
+  if (setupMode === 'series') {
+    settings.fieldSize = pendingField;
+    saveSettings(settings);
+    playerEntry = FIELD.find((e) => e.number === settings.player) ?? FIELD[0];
+    startNewSeries(seriesJoin);
+    return;
+  }
+  const mode = setupMode;
+  if (pendingCourse !== COURSE.id || pendingField !== FIELD.length) {
+    try {
+      sessionStorage.setItem('fd-autostart', mode);
+    } catch {
+      // 自動で始められなくても、ホームからもう一度選べばよい
+    }
+    reloadWithCourse(pendingCourse, pendingField);
+    return;
+  }
+  // セットアップ画面は閉じずに始める（予選の計算中は「計算中…」をここに出す。レースが始まればモードが変わって消える）
+  race.setLaps(settings.laps);
+  playerEntry = FIELD.find((e) => e.number === settings.player) ?? FIELD[0];
+  startMode(mode);
+};
+onClick(document.getElementById('setup-start')!, startFromSetup);
+onClick(document.getElementById('setup-back')!, closeSetup);
+// ホームの背景：コースの基本の風と、設定の天候（ランダムは晴れで表示）
 race.setWind(COURSE.wind.fromDeg, COURSE.wind.speed);
 race.setWeather(settings.weather === 'rain' ? 'rain' : 'sunny');
 weatherView.set(race.weather);
-refreshTitleSettings();
 
 // 予選結果
 qualifyingScreen.onStart = () => {
@@ -768,7 +931,13 @@ function refreshSeriesButtons() {
     const next = s.rounds[s.round];
     seriesResumeBtn.style.display = '';
     seriesResumeBtn.textContent = `続きから：第${s.round + 1}戦 ${courseById(next.courseId).shortName}（${s.mode === 'race' ? '騎乗' : '観戦'}）`;
-  } else seriesResumeBtn.style.display = 'none';
+    document.getElementById('series-card-note')!.textContent = `（続き：第${s.round + 1}戦）`;
+  } else {
+    seriesResumeBtn.style.display = 'none';
+    document.getElementById('series-card-note')!.textContent = '';
+  }
+  // 「続きから」はシリーズ戦のセットアップ画面にだけ出す
+  if (setupMode !== 'series') seriesResumeBtn.style.display = 'none';
 }
 function hideSeriesScreen() {
   seriesScreen.hide();
@@ -799,13 +968,11 @@ const goToSeriesRound = () => {
   }
   startSeriesRace();
 };
-const startNewSeries = (mode: 'race' | 'spectate') => {
+function startNewSeries(mode: 'race' | 'spectate') {
   series = newSeries(mode, settings.laps, settings.qualifying, settings.fieldSize);
   saveSeries(series);
   goToSeriesRound();
-};
-onClick(document.getElementById('btn-series-race')!, () => startNewSeries('race'));
-onClick(document.getElementById('btn-series-spectate')!, () => startNewSeries('spectate'));
+}
 onClick(seriesResumeBtn, goToSeriesRound);
 resultScreen.onSeries = () => {
   if (!series) return;
@@ -823,10 +990,25 @@ seriesScreen.onBack = () => {
 };
 seriesScreen.onTitle = showTitle;
 refreshSeriesButtons();
+refreshTitleSettings();
 
 // 設定（エディット）：保存したら読み込み直して出走表に反映
 onClick(document.getElementById('btn-edit')!, () => editScreen.show(edits));
 editScreen.onApply = () => reloadWithCourse(COURSE.id);
+// エディットの「コース下見」：今のコースならそのまま、違うコースなら読み込み直してから下見モードへ
+editScreen.onPreview = (courseId) => {
+  editScreen.hide();
+  if (courseId === COURSE.id) {
+    startCoursePreview();
+    return;
+  }
+  try {
+    sessionStorage.setItem('fd-autostart', 'preview');
+  } catch {
+    // 自動で開けなくても、もう一度選べばよい
+  }
+  reloadWithCourse(courseId);
+};
 
 // 所持金の資金リセット（再融資）
 onClick(document.getElementById('title-refinance')!, () => {
@@ -834,9 +1016,9 @@ onClick(document.getElementById('title-refinance')!, () => {
 });
 
 // タイトル
-onClick(document.getElementById('btn-preview')!, startCoursePreview);
-onClick(document.getElementById('btn-race')!, () => startMode('race'));
-onClick(document.getElementById('btn-spectate')!, () => startMode('spectate'));
+onClick(document.getElementById('btn-race')!, () => openSetup('race'));
+onClick(document.getElementById('btn-spectate')!, () => openSetup('spectate'));
+onClick(document.getElementById('btn-series')!, () => openSetup('series'));
 document.querySelectorAll<HTMLButtonElement>('.to-title').forEach((b) => onClick(b, showTitle));
 
 // シンプルレース（コース確認用の視点切替）
@@ -913,6 +1095,8 @@ window.addEventListener('keydown', (e) => {
   } else if (appMode === 'spectate') {
     if (e.code === 'Digit1') setSpeed(1);
     else if (e.code === 'Digit2') setSpeed(2);
+    else if (e.code === 'Digit3') setSpeed(3);
+    else if (e.code === 'Digit4') setSpeed(4);
   }
 });
 
@@ -948,7 +1132,14 @@ if (initialMode === 'race' || initialMode === 'spectate') {
   if (ff) {
     const crashAt = numParam('crash');
     let crashed = false;
+    // 確認用：&pitstop=秒 なら、注目している馬がピットに止まってから その秒数だけ進めたところで止める（ピットクルーの確認用）
+    const pitStopAt = numParam('pitstop');
+    let stoppedAt: number | null = null;
     for (let t = 0; t < ff; t += 1 / 60) {
+      if (pitStopAt !== undefined) {
+        if (stoppedAt === null && race.focus.pitPhase === 'stopped') stoppedAt = t;
+        if (stoppedAt !== null && t - stoppedAt >= pitStopAt) break;
+      }
       if (crashAt !== undefined && !crashed && race.time > crashAt) {
         // 確認用：注目している馬（シンプルレースでは自分の馬）を外ラチへ（落馬 → セーフティホース出動）
         const v = race.focus;
@@ -1014,6 +1205,26 @@ if (initialMode === 'race' || initialMode === 'spectate') {
   if (go && series && !isFinished(series) && series.rounds[series.round].courseId === COURSE.id && (series.fieldSize ?? 12) === FIELD.length) {
     startSeriesRace();
   }
+  // レースセットアップでコース・頭数を変えて読み込み直した直後なら、そのモードでスタート
+  let auto: string | null = null;
+  try {
+    auto = sessionStorage.getItem('fd-autostart');
+    sessionStorage.removeItem('fd-autostart');
+  } catch {
+    auto = null;
+  }
+  if (!go && (auto === 'race' || auto === 'spectate')) startMode(auto);
+  if (!go && auto === 'preview') startCoursePreview();
+  // 確認用：?demo=秒 でホーム背景のデモレースをその秒数だけ早送りする（自動カメラ巡回の確認用）
+  const demoFf = numParam('demo');
+  if (demoFf) {
+    for (let t = 0; t < demoFf; t += 1 / 60) race.update(1 / 60, NO_CONTROLS);
+    homeDemo.update(0);
+    rig.snapFollow();
+  }
+  // 確認用：?setup=race / spectate / series でレースセットアップ画面を開く
+  const setup = params.get('setup');
+  if (setup === 'race' || setup === 'spectate' || setup === 'series') openSetup(setup);
 }
 
 // --- Resize ---
@@ -1086,11 +1297,16 @@ renderer.setAnimationLoop((time) => {
     if (shift !== 0) shiftPace(race.player, shift);
     if (autoRun) race.player.paceLevel = 'high';
     race.update(dt, playerControls(race.player, input.steer() * track.side, pressed.has('Space'), race.condition));
+  } else if (appMode === 'title') {
+    // ホームの背景のデモレース
+    homeDemo.update(dt);
   } else if (racing && appMode === 'spectate') {
     if (pressed.has('ArrowLeft')) setFocus(neighbor(-1));
     if (pressed.has('ArrowRight')) setFocus(neighbor(1));
-    // 2 倍速は 1 フレームに 2 回進める（dt を倍にするより挙動が安定する）
-    for (let k = 0; k < speedMultiplier; k++) race.update(dt, NO_CONTROLS);
+    // 2〜4 倍速は 1 フレームに倍率の回数だけ進める（dt を大きくするより物理・接触判定・リプレイ記録が安定する）
+    // フレームが重い時（dt が大きい時）は 1/60 秒程度に刻んで、高速再生でも 1 回の進みを小さく保つ
+    const sub = Math.max(1, Math.ceil(dt * 60 - 0.25));
+    for (let k = 0; k < speedMultiplier * sub; k++) race.update(dt / sub, NO_CONTROLS);
   }
 
   // シンプルレースで落馬したら、倒れる様子を少し見せてから観戦カメラへ
@@ -1127,6 +1343,7 @@ renderer.setAnimationLoop((time) => {
     }
   }
   turfParticles.update(dt);
+  pitCrew.update(dt);
   safetyModel.root.visible = race.safety.visible;
   if (race.safety.visible) safetyModel.sync(race.safety, track, world.topAt, dt);
   startGate.update(dt, race);

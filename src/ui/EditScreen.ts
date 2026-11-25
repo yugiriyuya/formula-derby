@@ -1,17 +1,19 @@
 import { AI_LEVELS, DEFAULT_EDITS, saveEdits, type GameEdits } from '../data/edits';
 import { CONSTRUCTORS, ENTRIES } from '../data/roster';
+import { COURSES } from '../course/courses';
 import { RUNNING_STYLES, type RunningStyle } from '../data/runningStyles';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
-type Tab = 'general' | 'teams' | 'horses';
+type Tab = 'general' | 'teams' | 'horses' | 'preview';
 
 /**
  * 設定（エディット）画面。タイトルから開く。
  *  - 全般：AI の強さ、蹄鉄の摩耗の倍率
  *  - コンストラクター：名前、ピットクルーの腕
  *  - 出走馬：馬名・騎手名・騎手の戦略値・脚質・能力値（スピード / スタミナ / パワー / 賢さ）
+ *  - コース下見：コースを選んで下見モード（コースを自由に眺める）に入る
  * 「保存して反映」でブラウザに保存し、ページを読み込み直して出走表に反映する。
  * 画面に出す値は「今の出走表（起動時に保存済みの設定を反映したもの）」。
  */
@@ -23,6 +25,8 @@ export class EditScreen {
 
   /** 保存・初期化の後に呼ばれる（読み込み直しは main 側で） */
   onApply?: () => void;
+  /** コース下見のタブでコースを選んだ時（下見モードへの切り替えは main 側で） */
+  onPreview?: (courseId: string) => void;
 
   constructor() {
     this.el.querySelectorAll<HTMLButtonElement>('[data-edit-tab]').forEach((b) =>
@@ -43,6 +47,10 @@ export class EditScreen {
       this.onApply?.();
     });
     document.getElementById('edit-close')!.addEventListener('click', () => this.hide());
+    this.body.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest('button[data-preview-course]') as HTMLButtonElement | null;
+      if (b) this.onPreview?.(b.dataset.previewCourse!);
+    });
   }
 
   show(current: GameEdits) {
@@ -58,7 +66,15 @@ export class EditScreen {
 
   private render() {
     this.el.querySelectorAll<HTMLButtonElement>('[data-edit-tab]').forEach((b) => b.classList.toggle('active', b.dataset.editTab === this.tab));
-    if (this.tab === 'general') {
+    if (this.tab === 'preview') {
+      const cards = COURSES.map(
+        (c) => `<button class="preview-course" data-preview-course="${c.id}"><b>${esc(c.shortName)}</b>
+          <small>${c.direction === 'right' ? '右回り' : '左回り'}${c.surface === 'dirt' ? '・ダート' : '・芝'}${c.night ? '・ナイター' : ''}</small>
+          <span>${esc(c.description)}</span></button>`,
+      ).join('');
+      this.body.innerHTML = `<div class="preview-courses">${cards}</div>
+        <p class="edit-note">コースを選ぶと下見モードに入ります（視点の切替・コースを走るプレビュー。タイトルへ戻るでホームへ）。他のコースは読み込み直してから開きます。編集中の内容は保存されません。</p>`;
+    } else if (this.tab === 'general') {
       const levels = AI_LEVELS.map(
         (l) => `<label class="opt"><input type="radio" name="ai-level" value="${l.id}" ${this.edits.aiLevel === l.id ? 'checked' : ''}> ${l.label}<small>（能力 ×${l.factor}）</small></label>`,
       ).join('');
@@ -105,6 +121,7 @@ export class EditScreen {
 
   /** 今のタブの入力内容を edits に取り込む */
   private collect() {
+    if (this.tab === 'preview') return;
     const n = (el: Element | null) => Number((el as HTMLInputElement | null)?.value);
     if (this.tab === 'general') {
       const checked = this.body.querySelector<HTMLInputElement>('input[name="ai-level"]:checked');

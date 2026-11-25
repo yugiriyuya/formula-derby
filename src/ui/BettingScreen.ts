@@ -28,6 +28,10 @@ export class BettingScreen {
   private bets: Bet[] = [];
   private selected: { row: number; col: number } | null = null;
   private stake = STAKES[0];
+  /** 事前シミュレーション（試走）でオッズを計算している間は買えない */
+  private pending = false;
+  private pendingDone = -1;
+  private readonly statusEl = document.getElementById('bet-status')!;
 
   onConfirm?: (bets: Bet[]) => void;
   onSkip?: () => void;
@@ -35,7 +39,7 @@ export class BettingScreen {
   constructor(private readonly bank: Bankroll) {
     this.confirmBtn.addEventListener('click', () => {
       const total = this.total();
-      if (total <= 0 || total > this.bank.balance) return;
+      if (this.pending || total <= 0 || total > this.bank.balance) return;
       this.hide();
       this.onConfirm?.(this.bets.map((b) => ({ ...b })));
     });
@@ -50,7 +54,7 @@ export class BettingScreen {
     });
     this.matrixEl.addEventListener('click', (e) => {
       const td = (e.target as HTMLElement).closest('td[data-row]') as HTMLElement | null;
-      if (!td || td.classList.contains('locked')) return;
+      if (!td || td.classList.contains('locked') || this.pending) return;
       this.selected = { row: Number(td.dataset.row), col: Number(td.dataset.col) };
       this.matrixEl.querySelectorAll('td.sel').forEach((c) => c.classList.remove('sel'));
       td.classList.add('sel');
@@ -87,12 +91,40 @@ export class BettingScreen {
     this.player = player;
     this.bets = [];
     this.selected = null;
+    this.pending = false;
+    this.pendingDone = -1;
+    this.statusEl.innerHTML = '';
+    this.matrixEl.classList.remove('pending');
     document.getElementById('bet-title')!.textContent = title;
     this.renderMatrix();
     this.renderSelection();
     this.renderSlip();
     this.el.classList.add('show');
     document.body.classList.add('betting');
+  }
+
+  /** 事前シミュレーション中：進み具合を出して、オッズ表のクリックと確定を止める */
+  setPending(done: number, target: number) {
+    if (this.pending && this.pendingDone === done) return;
+    this.pendingDone = done;
+    this.pending = true;
+    this.matrixEl.classList.add('pending');
+    const pct = Math.min(100, Math.round((done / target) * 100));
+    this.statusEl.innerHTML = `<span class="spin"></span>オッズ算出中… 事前シミュレーション（実際のレース処理で試走）${done} / ${target} 回
+      <span class="bar"><i style="width:${pct}%"></i></span>`;
+    this.renderSlip();
+  }
+
+  /** 事前シミュレーションの結果を混ぜたオッズで表を描き直して、買えるようにする */
+  updateOdds(matrix: OddsMatrix) {
+    this.matrix = matrix;
+    this.pending = false;
+    this.selected = null;
+    this.matrixEl.classList.remove('pending');
+    this.statusEl.innerHTML = `<span class="ok">オッズ確定</span>：能力評価 ＋ 事前シミュレーション ${matrix.trials} 回の着順から算出`;
+    this.renderMatrix();
+    this.renderSelection();
+    this.renderSlip();
   }
 
   private total(): number {
@@ -179,6 +211,6 @@ export class BettingScreen {
       <div class="slip-total">合計 <b>${yen(total)}</b> ・ 残り <b class="${over ? 'neg' : ''}">${signedYen(bal - total).replace('+', '')}</b></div>
       ${over ? '<div class="neg">所持金が足りません</div>' : ''}
       <div class="hint">レースを途中でやめると賭け金は戻りません</div>`;
-    this.confirmBtn.disabled = total <= 0 || over;
+    this.confirmBtn.disabled = this.pending || total <= 0 || over;
   }
 }

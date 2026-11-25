@@ -1836,3 +1836,554 @@ body.betting #spectator-panel {
   font-weight: 900;
   color: #6fe07d;
 }
+
+/* ---------- ベッティング：オッズ算出中（事前シミュレーション） ---------- */
+#bet-status {
+  min-height: 18px;
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: #ccc;
+}
+#bet-status .ok {
+  font-weight: 700;
+  color: #6fe07d;
+}
+#bet-status .bar {
+  display: inline-block;
+  width: 160px;
+  height: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.12);
+}
+#bet-status .bar i {
+  display: block;
+  height: 100%;
+  background: #ffd23a;
+}
+#bet-status .spin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid #ffd23a;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: bet-spin 0.8s linear infinite;
+}
+@keyframes bet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+#bet-matrix.pending td {
+  opacity: 0.45;
+  cursor: progress;
+}
+
+/* スタミナ切れ（0 で落馬）の警告 */
+#race-hud .stamina-warn {
+  margin-left: 6px;
+  font-weight: 700;
+  color: #ff6a5a;
+  white-space: nowrap;
+}
+
+/* =====================================================================
+   ホーム画面（タイトル）：背景はデモレースの自動カメラ巡回＋ダークオーバーレイ
+   ===================================================================== */
+#title-screen {
+  position: fixed;
+  inset: 0;
+  display: block;
+  color: #fff;
+  background: none;
+  pointer-events: none;
+}
+#title-screen > * {
+  pointer-events: auto;
+}
+#title-screen .home-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 32%, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.55) 75%),
+    linear-gradient(180deg, rgba(6, 8, 14, 0.72) 0%, rgba(6, 8, 14, 0.15) 30%, rgba(6, 8, 14, 0.2) 55%, rgba(6, 8, 14, 0.88) 100%);
+}
+/* 左上：所持金 */
+#title-screen .home-top-left {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+#title-screen .home-bank {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 16px;
+  background: rgba(8, 10, 16, 0.72);
+  border-left: 4px solid #ffd23a;
+}
+#title-screen .home-bank span {
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: #c9c9c9;
+}
+#title-screen .home-bank b {
+  font-size: 26px;
+  font-weight: 900;
+  color: #ffd23a;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px rgba(255, 210, 58, 0.35);
+}
+.home-mini {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: #ccc;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid #777;
+  border-radius: 0;
+  cursor: pointer;
+}
+.home-mini:hover {
+  color: #fff;
+  border-color: #bbb;
+}
+/* 右上：エディット・コース下見（縦に並べる） */
+#title-screen .home-top-right {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 210px;
+}
+#title-screen .home-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 14px;
+  font: inherit;
+  color: #fff;
+  text-align: left;
+  background: rgba(10, 13, 20, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-right: 4px solid #e10600;
+  border-radius: 0;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.12s;
+}
+#title-screen .home-side:hover {
+  background: rgba(30, 34, 44, 0.9);
+  transform: translateX(-3px);
+}
+#title-screen .home-side b {
+  font-size: 15px;
+}
+#title-screen .home-side small {
+  font-size: 11px;
+  color: #aab;
+}
+/* 上半分：ロゴ */
+#title-screen .home-logo {
+  position: absolute;
+  top: 13%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
+}
+#title-screen .logo-kicker {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: #e9e3cf;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+#title-screen .logo-kicker i {
+  font-style: normal;
+  color: #e10600;
+}
+#title-screen h1 {
+  margin: 4px 0 0;
+  font-size: clamp(56px, 9.5vw, 124px);
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1;
+  letter-spacing: -1px;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.55),
+    0 10px 30px rgba(0, 0, 0, 0.75);
+}
+#title-screen h1 span {
+  color: #fff;
+}
+#title-screen h1 em {
+  font-style: italic;
+  color: transparent;
+  background: linear-gradient(180deg, #fff1b8 0%, #ffd23a 45%, #c8901a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.55));
+}
+#title-screen .logo-stripe {
+  width: min(560px, 60vw);
+  height: 6px;
+  margin: 14px auto 10px;
+  background: linear-gradient(90deg, transparent, #e10600 18%, #e10600 50%, #ffd23a 50%, #ffd23a 82%, transparent);
+  transform: skewX(-30deg);
+}
+#title-screen .logo-sub {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #d8d8d8;
+  text-shadow: 0 1px 4px #000;
+}
+#title-screen .logo-sub::before {
+  content: '前回の条件：';
+  color: #aaa;
+}
+/* 下半分：モード選択カード */
+#title-screen .home-cards {
+  position: absolute;
+  left: 50%;
+  bottom: 7%;
+  display: flex;
+  gap: 18px;
+  width: min(1080px, 92vw);
+  transform: translateX(-50%);
+}
+#title-screen .mode-card {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 150px;
+  padding: 18px 20px 16px;
+  overflow: hidden;
+  font: inherit;
+  color: #fff;
+  text-align: left;
+  background: linear-gradient(160deg, rgba(20, 24, 34, 0.92), rgba(8, 10, 16, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: 5px solid var(--accent);
+  border-radius: 0;
+  cursor: pointer;
+  transition: transform 0.14s, box-shadow 0.14s;
+}
+#title-screen .mode-card::after {
+  content: '';
+  position: absolute;
+  right: -40px;
+  bottom: -40px;
+  width: 160px;
+  height: 160px;
+  background: var(--accent);
+  opacity: 0.12;
+  transform: rotate(35deg);
+}
+#title-screen .mode-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--accent);
+}
+#title-screen .mode-card.race {
+  --accent: #e10600;
+}
+#title-screen .mode-card.spectate {
+  --accent: #2f8fff;
+}
+#title-screen .mode-card.series {
+  --accent: #ffd23a;
+}
+#title-screen .mode-card .num {
+  font-size: 13px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+#title-screen .mode-card b {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+#title-screen .mode-card small {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c4c8d0;
+}
+#title-screen .mode-card .go {
+  margin-top: auto;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+/* セットアップを開いている間はホームの操作部分を隠す（背景のデモレースはそのまま） */
+body.setup-open #title-screen .home-cards,
+body.setup-open #title-screen .home-logo,
+body.setup-open #title-screen .home-top-right {
+  display: none;
+}
+
+/* =====================================================================
+   レースセットアップ画面（ホームでモードを選んだ次のステップ）
+   ===================================================================== */
+#setup-screen {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+body[data-mode='title'].setup-open #setup-screen {
+  display: flex;
+}
+#setup-screen .setup-box {
+  width: min(900px, 96vw);
+  max-height: calc(100vh - 24px);
+  padding: 18px 26px 20px;
+  overflow-y: auto;
+  color: #fff;
+  background: rgba(10, 13, 20, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-top: 5px solid #e10600;
+}
+#setup-screen[data-mode='spectate'] .setup-box {
+  border-top-color: #2f8fff;
+}
+#setup-screen[data-mode='series'] .setup-box {
+  border-top-color: #ffd23a;
+}
+#setup-screen .setup-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+#setup-screen .setup-head b {
+  font-size: 26px;
+  font-weight: 900;
+}
+#setup-screen .setup-head span {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: #aab;
+}
+#setup-screen .settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  text-align: left;
+}
+#setup-screen .set-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#setup-screen .set-row .k {
+  flex: 0 0 56px;
+  color: #bbb;
+  font-size: 13px;
+}
+#setup-screen .opts {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+}
+#setup-screen .opts button {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  font: inherit;
+  color: #ddd;
+  text-align: left;
+  background: #20242c;
+  border: 2px solid #474c56;
+  border-radius: 0;
+  cursor: pointer;
+}
+#setup-screen .opts button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+#setup-screen .opts button b {
+  font-size: 14px;
+}
+#setup-screen .opts button small {
+  font-size: 11px;
+  color: #aaa;
+}
+#setup-screen .opts button.active {
+  color: #fff;
+  background: #6b4a12;
+  border-color: #ffd23a;
+}
+#setup-screen .opts button.active small {
+  color: #ffe9a8;
+}
+#setup-screen .opts.courses,
+#setup-screen .opts.players {
+  flex-wrap: wrap;
+}
+#setup-screen .opts.courses button {
+  flex: 0 0 calc(20% - 7px);
+  padding: 4px 6px;
+}
+#setup-screen .opts.players button {
+  flex: 0 0 calc(25% - 6px);
+  padding: 3px 6px;
+}
+#setup-screen .opts.courses button b,
+#setup-screen .opts.players button b {
+  font-size: 12px;
+}
+#setup-screen .opts.courses button small,
+#setup-screen .opts.players button small {
+  font-size: 10px;
+}
+#setup-screen .set-desc {
+  margin: -2px 0 2px 66px;
+  font-size: 11px;
+  color: #aaa;
+}
+/* モードごとに出す行 */
+#setup-screen .series-only,
+#setup-screen .player-row {
+  display: none;
+}
+#setup-screen[data-mode='series'] .series-only,
+#setup-screen.with-player .player-row {
+  display: flex;
+}
+#setup-screen[data-mode='series'] .course-row,
+#setup-screen[data-mode='series'] .weather-row {
+  display: none;
+}
+#setup-screen .setup-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+#setup-screen .setup-actions button {
+  padding: 12px 26px;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  background: #e10600;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+#setup-screen[data-mode='spectate'] #setup-start {
+  background: #1f6fd8;
+}
+#setup-screen[data-mode='series'] #setup-start {
+  color: #111;
+  background: #ffd23a;
+}
+#setup-screen .setup-actions button.resume {
+  background: #2f7d3a;
+}
+#setup-screen .setup-actions button:hover {
+  filter: brightness(1.15);
+}
+#setup-screen .busy {
+  margin-top: 10px;
+  color: #ffd23a;
+}
+body.q-shown #setup-screen {
+  display: none !important;
+}
+/* セットアップ画面を 720p でもスクロールなしで収める */
+#setup-screen .setup-box {
+  padding: 14px 22px 16px;
+}
+#setup-screen .setup-head {
+  margin-bottom: 10px;
+}
+#setup-screen .settings {
+  gap: 6px;
+  margin-bottom: 12px;
+}
+#setup-screen .opts button {
+  padding: 4px 10px;
+}
+#setup-screen .opts button b {
+  font-size: 13px;
+}
+#setup-screen .opts.players {
+  gap: 5px;
+}
+#setup-screen .opts.players button {
+  flex: 0 0 calc(12.5% - 5px);
+  padding: 2px 5px;
+  overflow: hidden;
+}
+#setup-screen .opts.players button b {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#setup-screen .setup-actions button {
+  padding: 10px 24px;
+}
+
+/* エディット：コース下見のタブ */
+#edit-body .preview-courses {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+#edit-body .preview-course {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px 10px;
+  font: inherit;
+  color: #fff;
+  text-align: left;
+  background: #20242c;
+  border: 2px solid #474c56;
+  border-radius: 0;
+  cursor: pointer;
+}
+#edit-body .preview-course:hover {
+  border-color: #ffd23a;
+  background: #2a2f38;
+}
+#edit-body .preview-course b {
+  font-size: 14px;
+}
+#edit-body .preview-course small {
+  font-size: 11px;
+  color: #ffd23a;
+}
+#edit-body .preview-course span {
+  font-size: 10px;
+  line-height: 1.4;
+  color: #aaa;
+}

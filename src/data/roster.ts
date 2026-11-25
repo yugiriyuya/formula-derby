@@ -62,12 +62,12 @@ export interface EntryData {
  * 並び順 = ピットボックス（厩舎）の並び順。
  */
 export const CONSTRUCTORS: ConstructorData[] = [
-  { id: 'sunday', name: 'サンデー', nameEn: 'Sunday', color: 0xd83a3a, capColor: 0xffffff, pitCrew: 8 },
-  { id: 'carrot', name: 'キャロット', nameEn: 'Carrot', color: 0xf07c24, capColor: 0x1f3a8a, pitCrew: 7 },
+  { id: 'sunday', name: 'サンデー', nameEn: 'Sunday', color: 0xd83a3a, capColor: 0xffffff, pitCrew: 10 },
+  { id: 'carrot', name: 'キャロット', nameEn: 'Carrot', color: 0xf07c24, capColor: 0x1f3a8a, pitCrew: 8 },
   { id: 'silk', name: 'シルク', nameEn: 'Silk', color: 0x8a3fd1, capColor: 0xf2c230, pitCrew: 9 },
-  { id: 'shadai', name: '社台', nameEn: 'Shadai', color: 0x2fae5a, capColor: 0xffffff, pitCrew: 6 },
-  { id: 'danox', name: 'ダノックス', nameEn: 'Danox', color: 0xf2c230, capColor: 0x222222, pitCrew: 5 },
-  { id: 'godolphin', name: 'ゴドルフィン', nameEn: 'Godolphin', color: 0x2f6fd8, capColor: 0xffd23a, pitCrew: 8 },
+  { id: 'shadai', name: '社台', nameEn: 'Shadai', color: 0x2fae5a, capColor: 0xffffff, pitCrew: 4 },
+  { id: 'danox', name: 'ダノックス', nameEn: 'Danox', color: 0xf2c230, capColor: 0x222222, pitCrew: 1 },
+  { id: 'godolphin', name: 'ゴドルフィン', nameEn: 'Godolphin', color: 0x2f6fd8, capColor: 0xffd23a, pitCrew: 7 },
   // 16 頭立ての時だけ出走する 2 チーム
   { id: 'northhills', name: 'ノースヒルズ', nameEn: 'North Hills', color: 0x1fb5b0, capColor: 0x222222, pitCrew: 7 },
   { id: 'kaneko', name: '金子真人HD', nameEn: 'Kaneko Makoto HD', color: 0x8a5a2b, capColor: 0xffd23a, pitCrew: 6 },
@@ -83,25 +83,25 @@ const entry = (
   startShoe: HorseshoeType = 'SOFT',
 ): EntryData => ({ id: `e${number}`, number, constructorId, jockey, horse, startShoe });
 
-// 能力値・騎手名はゲーム用の仮の値（騎手名は架空）
+// 初期データ（設定画面の「初期値に戻す」でこの値に戻る）
 export const ENTRIES: EntryData[] = [
-  entry(1, 'sunday', { name: '赤城 颯', strategy: 7 }, { name: 'クロワデュノール', coat: COAT.bay, stats: { speed: 7, stamina: 7, power: 6, intelligence: 7 }, style: 'senko' }),
-  entry(2, 'sunday', { name: '朱野 透', strategy: 5 }, { name: 'ジェンティルドンナ', coat: COAT.chestnut, stats: { speed: 6, stamina: 8, power: 7, intelligence: 5 }, style: 'senko' }, 'HARD'),
-  entry(3, 'carrot', { name: '青葉 湊', strategy: 8 }, { name: 'リスグラシュー', coat: COAT.darkBay, stats: { speed: 8, stamina: 6, power: 6, intelligence: 6 }, style: 'sashi' }),
-  entry(4, 'carrot', { name: '藍沢 律', strategy: 6 }, { name: 'エフフォーリア', coat: COAT.black, stats: { speed: 6, stamina: 7, power: 7, intelligence: 7 }, style: 'senko' }, 'HARD'),
-  entry(5, 'silk', { name: '金森 陽', strategy: 6 }, { name: 'イクイノックス', coat: COAT.chestnut, stats: { speed: 7, stamina: 6, power: 8, intelligence: 5 }, style: 'sashi' }),
-  entry(6, 'silk', { name: '黄瀬 匠', strategy: 7 }, { name: 'アーモンドアイ', coat: COAT.bay, stats: { speed: 6, stamina: 7, power: 6, intelligence: 8 }, style: 'sashi' }, 'HARD'),
-  entry(7, 'shadai', { name: '緑川 蓮', strategy: 9 }, { name: 'スターズオンアース', coat: COAT.darkBay, stats: { speed: 7, stamina: 8, power: 5, intelligence: 6 }, style: 'sashi' }),
-  entry(8, 'shadai', { name: '若葉 新', strategy: 5 }, { name: 'マスカレードボール', coat: COAT.bay, stats: { speed: 5, stamina: 8, power: 7, intelligence: 7 }, style: 'oikomi' }, 'HARD'),
-  entry(9, 'danox', { name: '紫藤 慧', strategy: 7 }, { name: 'ダノンプレミアム', coat: COAT.black, stats: { speed: 8, stamina: 5, power: 7, intelligence: 6 }, style: 'nige' }),
-  entry(10, 'danox', { name: '藤宮 環', strategy: 6 }, { name: 'ダノンデサイル', coat: COAT.chestnut, stats: { speed: 6, stamina: 6, power: 8, intelligence: 7 }, style: 'senko' }, 'HARD'),
-  entry(11, 'godolphin', { name: '橙山 駿', strategy: 6 }, { name: 'レモンポップ', coat: COAT.bay, stats: { speed: 7, stamina: 7, power: 7, intelligence: 4 }, style: 'nige' }),
-  entry(12, 'godolphin', { name: '柿本 渉', strategy: 8 }, { name: 'タワーオブロンドン', coat: COAT.darkBay, stats: { speed: 6, stamina: 6, power: 6, intelligence: 9 }, style: 'oikomi' }, 'HARD'),
+  entry(1, 'sunday', { name: 'デムーロ', strategy: 7 }, { name: 'ドゥラメンテ', coat: COAT.darkBay, stats: { speed: 9, stamina: 6, power: 8, intelligence: 5 }, style: 'senko' }),
+  entry(2, 'sunday', { name: '岩田康誠', strategy: 5 }, { name: 'ジェンティルドンナ', coat: COAT.chestnut, stats: { speed: 8, stamina: 8, power: 7, intelligence: 6 }, style: 'senko' }, 'HARD'),
+  entry(3, 'carrot', { name: 'レーン', strategy: 8 }, { name: 'リスグラシュー', coat: COAT.darkBay, stats: { speed: 7, stamina: 6, power: 6, intelligence: 6 }, style: 'sashi' }),
+  entry(4, 'carrot', { name: '横山武', strategy: 6 }, { name: 'エフフォーリア', coat: COAT.black, stats: { speed: 6, stamina: 7, power: 7, intelligence: 7 }, style: 'senko' }, 'HARD'),
+  entry(5, 'silk', { name: 'ルメール', strategy: 7 }, { name: 'イクイノックス', coat: COAT.chestnut, stats: { speed: 9, stamina: 8, power: 8, intelligence: 6 }, style: 'sashi' }),
+  entry(6, 'silk', { name: 'モレイラ', strategy: 9 }, { name: 'アーモンドアイ', coat: COAT.bay, stats: { speed: 7, stamina: 7, power: 6, intelligence: 8 }, style: 'sashi' }, 'HARD'),
+  entry(7, 'shadai', { name: '横山典弘', strategy: 4 }, { name: 'ハーツクライ', coat: COAT.darkBay, stats: { speed: 7, stamina: 8, power: 5, intelligence: 6 }, style: 'sashi' }),
+  entry(8, 'shadai', { name: '松山弘平', strategy: 5 }, { name: 'ステイゴールド', coat: COAT.bay, stats: { speed: 5, stamina: 8, power: 7, intelligence: 7 }, style: 'oikomi' }, 'HARD'),
+  entry(9, 'danox', { name: '川田将雅', strategy: 7 }, { name: 'ダノンプレミアム', coat: COAT.black, stats: { speed: 5, stamina: 5, power: 7, intelligence: 6 }, style: 'nige' }),
+  entry(10, 'danox', { name: '戸崎圭太', strategy: 3 }, { name: 'ダノンデサイル', coat: COAT.chestnut, stats: { speed: 6, stamina: 6, power: 8, intelligence: 7 }, style: 'senko' }, 'HARD'),
+  entry(11, 'godolphin', { name: 'デットーリ', strategy: 6 }, { name: 'ドバイミレニアム', coat: COAT.bay, stats: { speed: 7, stamina: 7, power: 7, intelligence: 4 }, style: 'nige' }),
+  entry(12, 'godolphin', { name: 'スミヨン', strategy: 8 }, { name: 'サンダースノー', coat: COAT.darkBay, stats: { speed: 8, stamina: 6, power: 6, intelligence: 9 }, style: 'oikomi' }, 'HARD'),
   // ここから下は 16 頭立ての時だけ
-  entry(13, 'northhills', { name: '白石 楓', strategy: 7 }, { name: 'コントレイル', coat: COAT.darkBay, stats: { speed: 7, stamina: 7, power: 6, intelligence: 7 }, style: 'sashi' }),
-  entry(14, 'northhills', { name: '灰原 樹', strategy: 6 }, { name: 'キズナ', coat: COAT.darkBay, stats: { speed: 6, stamina: 7, power: 7, intelligence: 6 }, style: 'oikomi' }, 'HARD'),
-  entry(15, 'kaneko', { name: '雪村 葵', strategy: 6 }, { name: 'ソダシ', coat: COAT.chestnut, stats: { speed: 7, stamina: 6, power: 6, intelligence: 6 }, style: 'nige' }),
-  entry(16, 'kaneko', { name: '桐谷 誠', strategy: 7 }, { name: 'アパパネ', coat: COAT.bay, stats: { speed: 6, stamina: 7, power: 6, intelligence: 7 }, style: 'senko' }, 'HARD'),
+  entry(13, 'northhills', { name: '福永祐一', strategy: 4 }, { name: 'コントレイル', coat: COAT.darkBay, stats: { speed: 2, stamina: 5, power: 4, intelligence: 4 }, style: 'sashi' }),
+  entry(14, 'northhills', { name: '坂井瑠星', strategy: 2 }, { name: 'キズナ', coat: COAT.darkBay, stats: { speed: 4, stamina: 7, power: 6, intelligence: 6 }, style: 'oikomi' }, 'HARD'),
+  entry(15, 'kaneko', { name: '吉田隼人', strategy: 5 }, { name: 'ソダシ', coat: COAT.chestnut, stats: { speed: 8, stamina: 4, power: 6, intelligence: 6 }, style: 'nige' }),
+  entry(16, 'kaneko', { name: '武豊', strategy: 8 }, { name: 'ディープインパクト', coat: COAT.bay, stats: { speed: 10, stamina: 9, power: 6, intelligence: 8 }, style: 'oikomi' }, 'HARD'),
 ];
 
 /** 出走頭数（既定 12 頭、最大 16 頭） */
@@ -118,7 +118,7 @@ export function teamsOf(entries: readonly EntryData[]): ConstructorData[] {
   return CONSTRUCTORS.filter((c) => entries.some((e) => e.constructorId === c.id));
 }
 
-/** 既定のプレイヤー操作馬（クロワデュノール）。URL の ?player=番号 で変更できる */
+/** 既定のプレイヤー操作馬（1 番 ドゥラメンテ）。URL の ?player=番号 で変更できる */
 export const PLAYER_ENTRY_ID = 'e1';
 
 export const constructorOf = (e: EntryData): ConstructorData =>

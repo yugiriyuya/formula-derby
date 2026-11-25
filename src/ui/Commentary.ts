@@ -94,7 +94,10 @@ export class Commentary {
         return s;
       }
       case 'crash':
-        return h ? pick([`あっと${nm(h)}、落馬！`, `${nm(h)}がラチに接触、落馬です！`]) : null;
+        if (!h) return null;
+        if (ev.cause === 'stamina')
+          return pick([`あっと${nm(h)}、脚が上がった！スタミナが尽きてバランスを崩し落馬！`, `${nm(h)}、スタミナ切れ！脚がもつれて落馬です！`]);
+        return pick([`あっと${nm(h)}、落馬！`, `${nm(h)}がラチに接触、落馬です！`]);
       case 'safety':
         return pick(['ここでセーフティホースが出動！追い越しは禁止です！', 'セーフティホース出動！馬群は一列になって追走！']);
       case 'green':
@@ -144,6 +147,18 @@ export class Commentary {
         return h
           ? pick([`後方の${nm(h)}は少し離された追走`, `最後方は${nm(h)}、ぽつんと離れての追走です`])
           : null;
+      case 'pitStop': {
+        // ピット作業：目立って速い・遅い時だけ
+        if (!h || ev.value === undefined) return null;
+        const t = ev.value.toFixed(1);
+        if (ev.pit === 'fast' && ev.value <= 2.2)
+          return pick([`${nm(h)}、ピット作業わずか${t}秒！見事な FAST PIT！`, `${nm(h)}のクルー、${t}秒の早業！素早くコースへ戻ります！`]);
+        if (ev.pit === 'slow')
+          return ev.value >= 6
+            ? pick([`あっと${nm(h)}、ピットで大きなミス！作業に${t}秒もかかった！`, `${nm(h)}、蹄鉄交換に手間取った！${t}秒の痛いロス！`])
+            : pick([`${nm(h)}、ピットで少しもたついた、${t}秒`, `${nm(h)}は${t}秒の SLOW PIT`]);
+        return null;
+      }
       case 'penalty':
         return null; // ペナルティは画面上部の警告で出すので実況では言わない
     }

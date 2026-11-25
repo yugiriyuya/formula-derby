@@ -89,9 +89,11 @@
         <span class="k">速度</span>
         <button data-speed="1">1倍速</button>
         <button data-speed="2">2倍速</button>
+        <button data-speed="3">3倍速</button>
+        <button data-speed="4">4倍速</button>
         <button class="to-title">タイトルへ</button>
       </div>
-      <div class="help">← → / 順位表クリック：注目する馬 ・ C：視点 ・ 1 / 2：速度 ・ R：再レース</div>
+      <div class="help">← → / 順位表クリック：注目する馬 ・ C：視点 ・ 1〜4：速度 ・ R：再レース</div>
     </div>
 
     <!-- 右下：自分の馬（観戦モードでは注目している馬）の状態 -->
@@ -110,6 +112,7 @@
       <div class="row">
         <span class="k">スタミナ</span>
         <div class="bar"><div id="h-stamina"></div></div>
+        <small id="h-stamina-warn" class="stamina-warn"></small>
       </div>
       <div class="row weather"><span class="k">天候</span><b id="h-weather">晴れ</b><span class="k windk">風</span><span id="h-wind-arrow" class="wind-arrow">↑</span><small id="h-wind">-</small></div>
       <div class="row"><span class="k">ムチ</span><b id="h-whip">0 / 5</b><small>今周</small><b id="h-penalty" class="penalty"></b></div>
@@ -204,6 +207,7 @@
       <div class="result-box">
         <div class="result-head"><b>BETTING</b><span>ブックメーカー オッズ表（着順 × 全頭）</span><span id="bet-title" class="bet-title"></span>
           <span class="bet-bank">所持金 <b class="bank-balance">¥0</b></span></div>
+        <div id="bet-status"></div>
         <div class="bet-body">
           <div id="bet-matrix"></div>
           <div class="bet-side">
@@ -228,6 +232,7 @@
           <button data-edit-tab="general">全般</button>
           <button data-edit-tab="teams">コンストラクター</button>
           <button data-edit-tab="horses">出走馬・騎手・能力値</button>
+          <button data-edit-tab="preview">コース下見</button>
         </div>
         <div id="edit-body"></div>
         <div class="result-buttons">
@@ -258,17 +263,64 @@
 
     <!-- タイトル（モード選択） -->
     <div id="title-screen">
-      <div class="title-box">
-        <h1>Formula Derby</h1>
-        <div class="title-bank">所持金 <b class="bank-balance">¥1,000,000</b><button id="title-refinance" title="所持金を ¥1,000,000 に戻す">資金リセット（再融資）</button></div>
-        <p class="sub" id="title-sub">京都・芝外回り（右回り）・5周</p>
-        <!-- レース設定（コース・周回数・予選） -->
+      <!-- 背景：実際のレース（全頭 AI）を自動カメラで巡回。上にダークオーバーレイ -->
+      <div class="home-shade"></div>
+      <div class="home-top-left">
+        <div class="home-bank"><span>所持金</span><b class="bank-balance">¥1,000,000</b></div>
+        <button id="title-refinance" class="home-mini" title="所持金を ¥1,000,000 に戻す">資金リセット（再融資）</button>
+      </div>
+      <div class="home-top-right">
+        <button id="btn-edit" class="home-side"><b>⚙ エディット</b><small>AI・能力値・名前・コース下見</small></button>
+      </div>
+      <div class="home-logo">
+        <div class="logo-kicker">HORSE RACING <i>×</i> FORMULA 1</div>
+        <h1><span>Formula</span> <em>Derby</em></h1>
+        <div class="logo-stripe"></div>
+        <div class="logo-sub" id="title-sub">-</div>
+      </div>
+      <div class="home-cards">
+        <button id="btn-race" class="mode-card race">
+          <span class="num">01</span>
+          <b>シンプルレース</b>
+          <small>自分で騎乗して 1 戦を走る</small>
+          <span class="go">レース設定へ ▶</span>
+        </button>
+        <button id="btn-spectate" class="mode-card spectate">
+          <span class="num">02</span>
+          <b>観戦モード</b>
+          <small>全頭 AI のレースを観戦・ブックメーカーで勝負</small>
+          <span class="go">レース設定へ ▶</span>
+        </button>
+        <button id="btn-series" class="mode-card series">
+          <span class="num">03</span>
+          <b>シリーズ戦</b>
+          <small>全 10 戦を転戦するチャンピオンシップ<span id="series-card-note"></span></small>
+          <span class="go">シリーズ設定へ ▶</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- レースセットアップ（ホームでモードを選んだ次の画面） -->
+    <div id="setup-screen">
+      <div class="setup-box">
+        <div class="setup-head">
+          <button id="setup-back" class="home-mini">◀ ホームへ戻る</button>
+          <b id="setup-title">シンプルレース</b>
+          <span id="setup-desc"></span>
+        </div>
         <div class="settings">
-          <div class="set-row">
+          <div class="set-row series-only">
+            <span class="k">参加</span>
+            <div class="opts">
+              <button data-series-mode="race"><b>騎乗</b><small>自分の馬で全 10 戦に出る</small></button>
+              <button data-series-mode="spectate"><b>観戦</b><small>全頭 AI の選手権を見届ける</small></button>
+            </div>
+          </div>
+          <div class="set-row course-row">
             <span class="k">コース</span>
             <div class="opts" id="set-course"></div>
           </div>
-          <div class="set-desc" id="set-course-desc"></div>
+          <div class="set-desc course-row" id="set-course-desc"></div>
           <div class="set-row">
             <span class="k">周回数</span>
             <div class="opts">
@@ -284,7 +336,7 @@
               <button data-field="16"><b>16頭</b><small>8チーム × 2頭（フルゲート）</small></button>
             </div>
           </div>
-          <div class="set-row">
+          <div class="set-row weather-row">
             <span class="k">天候</span>
             <div class="opts">
               <button data-weather="sunny"><b>晴れ</b><small>良馬場</small></button>
@@ -299,30 +351,14 @@
               <button data-qual="0"><b>予選なし</b><small>ランダム枠順</small></button>
             </div>
           </div>
-        </div>
-        <div class="menu">
-          <button id="btn-race">
-            <b>シンプルレース</b>
-            <small>自分で騎乗（<span id="title-player">-</span>）</small>
-          </button>
-          <button id="btn-preview">
-            <b>コース下見</b>
-            <small>コースを自由に眺める</small>
-          </button>
-          <button id="btn-spectate">
-            <b>観戦モード</b>
-            <small>全頭を AI で観戦</small>
-          </button>
-        </div>
-        <div class="title-links"><button id="btn-edit">⚙ 設定（エディット）</button><small>AIの強さ・蹄鉄の摩耗・チーム名・馬名・騎手名・能力値</small></div>
-        <!-- シリーズ戦（全10戦・コンストラクターズ選手権） -->
-        <div class="series-menu">
-          <div class="series-head"><b>シリーズ戦（全10戦）</b><small>10コースを順に転戦・ポイント制のコンストラクターズ選手権（周回数・予選は上の設定）</small></div>
-          <div class="series-buttons">
-            <button id="btn-series-race">新しく始める：騎乗</button>
-            <button id="btn-series-spectate">新しく始める：観戦</button>
-            <button id="btn-series-resume" class="resume"></button>
+          <div class="set-row player-row">
+            <span class="k">操作馬</span>
+            <div class="opts players" id="set-player"></div>
           </div>
+        </div>
+        <div class="setup-actions">
+          <button id="btn-series-resume" class="resume"></button>
+          <button id="setup-start">スタート ▶</button>
         </div>
       </div>
     </div>

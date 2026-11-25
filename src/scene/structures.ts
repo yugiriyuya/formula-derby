@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CourseTrack, TrackFrame } from '../course/CourseTrack';
 import type { WorldBounds } from './courseWorld';
+import { buildSpectators, seatRow, seededRandom, type Seat } from './spectators';
 import { CONSTRUCTORS, type ConstructorData } from '../data/roster';
 
 type TopAt = (x: number, z: number) => number;
@@ -25,6 +26,9 @@ function placeOnTrack(frame: TrackFrame, y: number, side: 1 | -1): THREE.Group {
   g.scale.z = side;
   return g;
 }
+
+/** スタンド視点のカメラを置く段（14 段の中段）。CameraRig.standEye と合わせる */
+export const STAND_CAMERA_TIER = 6;
 
 /** ホームストレッチ外側の段々スタンド */
 function buildStands(track: CourseTrack, topAt: TopAt): THREE.Group {
@@ -61,6 +65,19 @@ function buildStands(track: CourseTrack, topAt: TopAt): THREE.Group {
     pillar.position.set(x, wallH / 2, -(offset + depth - 3));
     g.add(pillar);
   }
+
+  // 観客：各段の座席に（最前列の通路は立ち見）。スタンド視点のカメラの席（中段の中央）は空けておく
+  const seats: Seat[] = [];
+  const rand = seededRandom(Math.round(centerS * 7) + 11);
+  const along = new THREE.Vector3(1, 0, 0);
+  const facing = new THREE.Vector3(0, 0, 1);
+  for (let k = 0; k < tiers; k++) {
+    const center = new THREE.Vector3(0, 0.8 + k * rise, -(offset + k * tierDepth + 0.7));
+    // カメラの前（同じ段より下）の近くの人は、望遠で大きく映って視界をふさぐので空席にしておく
+    const skip = (p: THREE.Vector3) => k <= STAND_CAMERA_TIER + 1 && Math.abs(p.x) < 4 + (STAND_CAMERA_TIER - k) * 0.8;
+    seatRow(seats, center, along, facing, length - 2, rand, k === 0 ? 0.35 : 0.72, 0.85, skip);
+  }
+  g.add(buildSpectators(seats, Math.round(centerS) + 3));
   return g;
 }
 

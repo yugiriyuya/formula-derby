@@ -13,10 +13,12 @@ export interface RaceSettings {
   weather: WeatherOption;
   /** 出走頭数（12 / 16） */
   fieldSize: 12 | 16;
+  /** シンプルレースで操作する馬（出走表の番号） */
+  player: number;
 }
 
 const KEY = 'formula-derby-settings';
-const DEFAULTS: RaceSettings = { course: 'kyoto-outer', laps: 5, qualifying: false, weather: 'sunny', fieldSize: 12 };
+const DEFAULTS: RaceSettings = { course: 'kyoto-outer', laps: 5, qualifying: false, weather: 'sunny', fieldSize: 12, player: 1 };
 
 export function loadSettings(): RaceSettings {
   try {
@@ -29,6 +31,7 @@ export function loadSettings(): RaceSettings {
       qualifying: v.qualifying === true,
       weather: v.weather === 'rain' || v.weather === 'random' ? v.weather : 'sunny',
       fieldSize: v.fieldSize === 16 ? 16 : 12,
+      player: typeof v.player === 'number' && v.player >= 1 && v.player <= 16 ? Math.round(v.player) : 1,
     };
   } catch {
     return { ...DEFAULTS };

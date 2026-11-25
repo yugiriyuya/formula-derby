@@ -4,7 +4,7 @@ import { teammateIndex, teamsOf, type ConstructorData, type EntryData } from '..
 import { AIController, type AIContext } from './AIController';
 import type { TurfWear } from './TurfWear';
 import { RACE_CONFIG, raceFormat, type RaceFormat } from './raceConfig';
-import { NO_CONTROLS, RaceHorse, type HorseControls } from './RaceHorse';
+import { NO_CONTROLS, RaceHorse, type HorseControls, type PitWorkResult } from './RaceHorse';
 import { SafetyHorse, type SafetyState } from './SafetyHorse';
 import { ReplayRecorder } from './ReplayRecorder';
 import { computeOddsMatrix, type OddsMatrix } from '../betting/odds';
@@ -30,7 +30,7 @@ export interface RaceMessage {
  */
 export type RaceEventType =
   | 'start' | 'crash' | 'safety' | 'green' | 'final400' | 'leadChange' | 'finish' | 'penalty'
-  | 'lapLeader' | 'breakaway' | 'tailOff' | 'mark1000';
+  | 'lapLeader' | 'breakaway' | 'tailOff' | 'mark1000' | 'pitStop';
 export interface RaceEvent {
   type: RaceEventType;
   horse?: RaceHorse;
@@ -40,6 +40,10 @@ export interface RaceEvent {
   lap?: number;
   lapTime?: number;
   elapsed?: number;
+  /** crash：落馬の原因（rail = ラチに衝突、stamina = スタミナ切れ） */
+  cause?: 'rail' | 'stamina';
+  /** pitStop：蹄鉄交換の出来（value = 作業時間 秒） */
+  pit?: PitWorkResult;
   /** 演出用の時刻（Race.clock） */
   at: number;
 }
@@ -180,6 +184,8 @@ export class Race {
     public laps: number,
     entries: readonly EntryData[],
     playerEntryId: string | null,
+    /** trial = オッズ用の事前シミュレーション（試走）：オッズ表もリプレイも作らない */
+    readonly options: { trial?: boolean } = {},
   ) {
     this.format = raceFormat(laps);
     this.safety = new SafetyHorse(track);
@@ -192,7 +198,13 @@ export class Race {
       const h = new RaceHorse(track, e, garageIndex, this.teams.length, boxOffset);
       h.onCrossLine = (horse) => this.handleCrossLine(horse);
       h.onPitComplete = (horse, from, to) => {
-        if (horse === this.focus) this.notify(`蹄鉄交換完了 ${from} → ${to}`, 2.5);
+        const r = horse.pitWorkResult;
+        this.emit('pitStop', horse, horse.pitWork, { pit: r ?? undefined });
+        if (horse === this.focus) {
+          const t = horse.pitWork.toFixed(1);
+          const text = r === 'fast' ? `FAST PIT! ${t}秒` : r === 'slow' ? `SLOW PIT… ${t}秒` : `ピット作業 ${t}秒（${from}→${to}）`;
+          this.notify(text, 2.8, r === 'slow' ? 'penalty' : undefined);
+        }
       };
       h.onPenalty = (horse, seconds, reason) =>
         this.report(horse, `PENALTY +${seconds}s: ${reason} — ${horse.postNumber}番 ${horse.entry.horse.name}`);
@@ -245,8 +257,17 @@ export class Race {
     this.format = raceFormat(laps);
     for (const h of this.horses) {
       h.shoeWearScale = this.format.shoeWear * this.shoeWearMultiplier;
-      h.staminaScale = this.format.stamina;
+      h.staminaScale = this.format.stamina * this.lapLengthStaminaFactor();
     }
+  }
+
+  /**
+   * 1 周の長さによるスタミナの減り方の補正。スタミナは時間で減るので、長いコース（スパ・バクー）ほど
+   * 同じ周回数でも消耗が大きくなる。基準（約 1.8km）の 1 周と同じ割合で減るようにそろえる
+   */
+  private lapLengthStaminaFactor(): number {
+    const lapM = this.track.length * this.track.def.metersPerBlock;
+    return Math.min(1.5, Math.max(0.7, RACE_CONFIG.staminaRefLapM / lapM));
   }
 
   /**
@@ -298,7 +319,7 @@ export class Race {
     for (const h of this.horses) {
       h.startShoeOverride = null;
       h.shoeWearScale = this.format.shoeWear * this.shoeWearMultiplier;
-      h.staminaScale = this.format.stamina;
+      h.staminaScale = this.format.stamina * this.lapLengthStaminaFactor();
       // 設定の「AI の強さ」：自分の馬以外（観戦モードでは全頭）
       h.abilityFactor = h === this.player ? 1 : this.aiAbility;
     }
@@ -410,6 +431,7 @@ export class Race {
     for (const h of this.horses) if (h.stopGoPending && !h.pitRequested && !h.inPit && !h.retired) h.pitRequested = true;
 
     this.detectSlipstream();
+    this.applyPackDynamics();
     this.readGround();
     for (const h of this.horses) h.windAlong = h.inPit ? 0 : this.windAlongAt(h.s);
     const ctx: AIContext = {
@@ -437,7 +459,7 @@ export class Race {
     this.countOvertakes(before);
     this.detectMilestones();
     this.detectFieldShape();
-    this.replay.update(this, dt);
+    if (!this.options.trial) this.replay.update(this, dt);
   }
 
   private emit(type: RaceEventType, horse?: RaceHorse, value?: number, extra?: Partial<RaceEvent>) {
@@ -555,9 +577,14 @@ export class Race {
    * 控除率 20%（払戻 80%）でオッズにする。毎レース少しだけ人気が揺れる。
    */
   private setOdds() {
+    if (this.options.trial) return;
     // ブックメーカーのオッズ表（全頭 × 着順 ＋ DNF）。単勝オッズと人気はその 1 着の列
-    this.oddsMatrix = computeOddsMatrix(this);
-    const m = this.oddsMatrix;
+    this.useOdds(computeOddsMatrix(this));
+  }
+
+  /** オッズ表を差し替える（事前シミュレーションの結果を混ぜた時など）。単勝オッズと人気も付け直す */
+  useOdds(m: OddsMatrix) {
+    this.oddsMatrix = m;
     m.horses.forEach((h, i) => (h.odds = m.odds[i][0]));
     [...this.horses].sort((a, b) => a.odds - b.odds).forEach((h, i) => (h.popularity = i + 1));
   }
@@ -643,6 +670,40 @@ export class Race {
   }
 
   /**
+   * 馬群の接戦（ラバーバンド）と差し・追込の末脚。
+   *  - 先頭から離された馬ほど最高速度が上がる（rubberBand*）。先頭の馬には空気抵抗（スタミナ）の印を付ける
+   *  - 最終周の残り kickDistanceM（直線が長いコースは直線の入口から）で、脚を残した差し・追込に末脚（直線が長いほど大きい）
+   */
+  private applyPackDynamics() {
+    const C = RACE_CONFIG;
+    const mpb = this.track.def.metersPerBlock;
+    const running = this.phase === 'running';
+    const field = this.standings.filter((h) => !h.retired && !h.finished);
+    const leader = field[0] ?? null;
+    const last = this.track.def.segments[this.track.def.segments.length - 1];
+    const homeM = (last.type === 'straight' ? last.length : 0) * mpb;
+    // 直線が長いほど差し・追込が届きやすく（末脚が大きい・先頭の消耗が大きい）、短い小回りでは先行・逃げが粘る
+    const straightK = Math.min(1.7, Math.max(0.3, homeM / C.kickStraightRefM));
+    const leadDrag = 1 + (C.leadDragDrain - 1) * straightK * 1.4;
+    const kickFromM = Math.max(C.kickDistanceM, homeM + 60);
+    const totalM = this.laps * this.track.length * mpb;
+    for (const h of this.horses) {
+      h.leading = running && h === leader;
+      h.leadDrag = leadDrag;
+      h.catchUp = 0;
+      h.finalKick = 0;
+      if (!running || !leader || h.retired || h.finished || h.inPit) continue;
+      const gapM = (leader.progress - h.progress) * mpb;
+      const free = h.lapsCompleted >= this.laps - 1 ? C.rubberBandFinalLapFreeM : C.rubberBandFreeM;
+      h.catchUp = Math.min(C.rubberBandMax, Math.max(0, (gapM - free) * C.rubberBandPerM));
+      const remainingM = totalM - h.progress * mpb;
+      // 末脚は直線の長さしだい：短い直線（ムーニーバレー・モナコ）ではほぼ効かず、東京のような長い直線で大きい
+      const kickK = Math.max(0, straightK - 0.55) * 2;
+      if (h.style.kick > 0 && remainingM < kickFromM && h.stamina >= C.kickMinStamina) h.finalKick = h.style.kick * kickK;
+    }
+  }
+
+  /**
    * ラチへの衝突 = 落馬。馬の中心がラチから（馬体の半幅＋支柱の半幅）より近づいたらリタイア。
    * 内ラチが開いているピット出入口では、コースの端で止まるだけ。
    * 直前に他馬に接触・押し出されていたら、その馬に STOP & GO。
@@ -659,16 +720,18 @@ export class Race {
       }
       if (h.lateral < -lim || h.lateral > lim) this.crash(h);
     }
+    // スタミナ切れ：脚がもつれてバランスを崩し、落馬（DNF）
+    for (const h of this.horses) if (h.exhausted) this.crash(h, 'stamina');
   }
 
-  private crash(h: RaceHorse) {
+  private crash(h: RaceHorse, cause: 'rail' | 'stamina' = 'rail') {
     const C = RACE_CONFIG;
     h.retire(this.time);
-    this.emit('crash', h);
-    this.report(h, `落馬 DNF — ${h.postNumber}番 ${h.entry.horse.name}（PIT RETURN）`);
-    // 接触・押し出しで落馬させた馬：STOP & GO（直前の接触ペナルティ +10s はこれに置き換える）
+    this.emit('crash', h, undefined, { cause });
+    this.report(h, `落馬 DNF${cause === 'stamina' ? '（スタミナ切れ）' : ''} — ${h.postNumber}番 ${h.entry.horse.name}（PIT RETURN）`);
+    // 接触・押し出しで落馬させた馬：STOP & GO（直前の接触ペナルティ +10s はこれに置き換える）。スタミナ切れは誰のせいでもない
     const by = h.lastHitBy;
-    if (by && !by.retired && this.clock - h.lastHitAt < C.crashBlameWindow) {
+    if (cause === 'rail' && by && !by.retired && this.clock - h.lastHitAt < C.crashBlameWindow) {
       const lp = by.lastContactPenalty;
       if (lp && lp.victim === h && this.clock - lp.at < C.crashBlameWindow) {
         by.penaltySeconds -= C.contactPenaltySeconds;
@@ -678,7 +741,14 @@ export class Race {
       this.report(by, `STOP & GO: CAUSED CRASH — ${by.postNumber}番 ${by.entry.horse.name}`);
     }
     if (this.horses.every((x) => x.finished || x.retired)) this.endRace();
-    else this.safety.deploy();
+    // 先頭がファイナルラップに入ってからの落馬では、セーフティホースは出さない（落馬した馬はコース脇へ退避する）。
+    // 終盤のスタミナ切れ落馬で全馬が 50km/h に抑えられて、ゴール前の追い比べが台無しにならないように
+    else if (!this.finalLapUnderway()) this.safety.deploy();
+  }
+
+  /** 先頭（落馬していない馬で最も前）がファイナルラップ以降を走っている */
+  private finalLapUnderway(): boolean {
+    return this.horses.some((h) => !h.retired && (h.finished || h.lapsCompleted >= this.laps - 1));
   }
 
   /** 全馬がゴール（またはリタイア）：レース終了。セーフティホースも引き上げる */
@@ -883,6 +953,8 @@ export class Race {
   private handleCrossLine(horse: RaceHorse) {
     // スタート直後の通過（ゲートがゴール板の手前）は周回に数えない
     if (horse.lapsCompleted === 0) return;
+    // ゴール後にキャンターで 1 周してきた通過は数えない（ゴールタイム・ラップが書き換わらないように）
+    if (horse.finished) return;
 
     horse.lapTimes.push(this.time - horse.lapStartTime);
     horse.lapStartTime = this.time;

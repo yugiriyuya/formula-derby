@@ -49,6 +49,9 @@ export class RaceHorse {
   pitRequested = false;
   pitPhase: PitPhase = 'none';
   pitTimer = 0;
+  /** 今回の停止の蹄鉄交換にかかる時間（秒。ペナルティ消化の分は含まない）と、その出来 */
+  pitWork = 0;
+  pitWorkResult: PitWorkResult | null = null;
   pitCount = 0;
   private serviced = false;
   whipsThisLap = 0;
@@ -123,6 +126,14 @@ export class RaceHorse {
   /** 周回数に合わせた調整（20 周では蹄鉄の摩耗・スタミナの消耗を緩める）。Race.setLaps で設定 */
   shoeWearScale = 1;
   staminaScale = 1;
+  /** 馬群の接戦：先頭から離されている分の最高速度の上乗せ率（Race が毎ステップ決める） */
+  catchUp = 0;
+  /** 今、先頭を走っている（空気抵抗をまともに受ける） */
+  leading = false;
+  /** 先頭・逃げ馬の空気抵抗によるスタミナの減りの倍率（コースの直線が長いほど大きい。Race が決める） */
+  leadDrag = 1;
+  /** 差し・追込の末脚：最高速度の上乗せ率（Race が最終盤に決める。0 = なし） */
+  finalKick = 0;
   /** 能力の倍率（設定の「AI の強さ」。AI が走らせる馬だけ 1 以外になる） */
   abilityFactor = 1;
   /** 進行方向の風速（m/s。追い風が +、向かい風が -）。Race が毎フレーム設定する */
@@ -200,6 +211,8 @@ export class RaceHorse {
     this.pitRequested = false;
     this.pitPhase = 'none';
     this.pitTimer = 0;
+    this.pitWork = 0;
+    this.pitWorkResult = null;
     this.pitCount = 0;
     this.serviced = false;
     this.whipsThisLap = 0;
@@ -292,6 +305,11 @@ export class RaceHorse {
     return this.shoe === 'SOFT' ? 'HARD' : 'SOFT';
   }
 
+  /** スタミナが尽きた（0）：脚がもつれて落馬する（Race が DNF にする） */
+  get exhausted(): boolean {
+    return C.staminaCollapse && !this.retired && !this.finished && this.stamina <= 0 && (this.pitPhase === 'none' || this.pitPhase === 'approach');
+  }
+
   /** 柵に衝突して落馬：リタイア（DNF） */
   retire(raceTime: number) {
     if (this.retired) return;
@@ -360,6 +378,8 @@ export class RaceHorse {
     if (this.pitPhase !== 'lane') top *= 1 - this.groundWear * C.roughPenalty[this.shoe];
     // スリップストリーム：前の馬の風よけで +3km/h
     top += C.slipstreamSpeedBonus * this.slipstream;
+    // 馬群の接戦（離された馬ほど速い）と、差し・追込の末脚
+    if (this.pitPhase === 'none' || this.pitPhase === 'approach') top *= 1 + this.catchUp + this.finalKick;
     // セーフティホース中の速度制限・追い越し禁止（ピットレーンでは別の制限がかかる）
     if (this.pitPhase !== 'lane') top = Math.min(top, this.speedCap);
     return top;
@@ -408,7 +428,6 @@ export class RaceHorse {
     // --- ピット停止中 ---
     if (this.pitPhase === 'stopped') {
       this.speed = 0;
-      this.stamina = Math.min(100, this.stamina + C.pitStaminaRecover * dt);
       this.pitTimer -= dt;
       if (this.pitTimer <= 0) {
         // ペナルティ消化の完了（タイムペナルティは消化済みへ移す）
@@ -423,6 +442,8 @@ export class RaceHorse {
             this.onStopGoServed?.(this);
           } else this.onPenaltyServed?.(this, timePart);
         }
+        // スタミナが回復するのはピットイン完了時だけ
+        this.stamina = Math.min(100, this.stamina + C.pitStaminaBonus);
         const from = this.shoe;
         this.shoe = this.nextShoe;
         this.shoeWear = 0;
@@ -468,6 +489,7 @@ export class RaceHorse {
 
     let accel = C.accelBase + st.power * C.accelPerStat;
     if (this.whipBoost > 0) accel *= 1 + (C.whipAccelMultiplier - 1) * this.whipPower * this.style.whipPower;
+    if (this.finalKick > 0) accel *= C.kickAccelMultiplier;
     if (this.startBoost > 0) accel *= C.rocketAccelMultiplier;
     if (!canRace) {
       // スタート前は停止、ゴール後はキャンター程度までゆっくり落とす
@@ -489,19 +511,25 @@ export class RaceHorse {
     this.speed = Math.max(0, this.speed);
 
     // --- スタミナ ---
-    if (canRace) {
+    if (canRace && !this.finished) {
       const baseTop = C.topSpeedBase + st.speed * C.topSpeedPerStat;
       const drainK = C.staminaDrainBase - st.stamina * C.staminaDrainPerStat;
-      let rate = drainK * (this.speed / baseTop - C.staminaCruiseRatio);
+      // 馬群に追いつく上乗せ（catchUp）の分の速さではスタミナを使わない
+      let rate = drainK * (this.speed / (baseTop * (1 + this.catchUp)) - C.staminaCruiseRatio);
       rate += Math.max(0, track.slopeAt(this.s)) * C.staminaHillDrain * (1.2 - st.power * 0.05) * (this.speed / baseTop);
-      // ペース：ハイペースは消耗が増え、折り合うと回復しやすい
+      // ペース：ハイペースは消耗が増える。レース中の回復はなし（ピットイン完了時だけ）
       const pace = PACE_LEVELS[this.paceLevel];
       if (rate > 0) {
         // スリップストリーム中は風よけで消耗が大きく減る
-        // 脚質：逃げ・先行はハイペースでも消耗が少なく、差し・追込は道中に消耗しやすい
+        // 脚質：逃げ・先行は前で風を受けるぶん消耗しやすく、差し・追込は道中に脚をためやすい
         const styleDrain = this.paceLevel === 'high' ? this.style.highPaceDrain : this.style.cruiseDrain;
         rate *= pace.drain * styleDrain * C.staminaDrainScale * this.staminaScale * (1 - C.slipstreamDrainCut * this.slipstream);
-      } else rate = Math.max(-C.staminaRecoverMax * pace.recover, rate * 0.5 * pace.recover);
+        // 先頭・前に風よけのいない逃げ馬は空気抵抗をまともに受ける
+        if ((this.leading || this.entry.horse.style === 'nige') && this.slipstream < 0.2) rate *= this.leadDrag;
+      }
+      // どんなにゆっくり走っても少しずつ減る。折り合い＋スリップストリーム中だけは ±0
+      rate = Math.max(rate, C.staminaMinDrain * this.staminaScale);
+      if (this.paceLevel === 'relaxed' && this.slipstream > 0.5) rate = 0;
       this.stamina = Math.min(100, Math.max(0, this.stamina - rate * dt));
     }
 
@@ -579,11 +607,46 @@ export class RaceHorse {
       // 停止時間を延ばし、その後で蹄鉄を交換して出ていく。消化した分はゴールタイムに加算されない
       this.servingStopGo = this.stopGoPending;
       this.servingPenalty = this.penaltySeconds + (this.stopGoPending ? C.stopGoSeconds : 0);
-      // 作業時間はコンストラクターのピットクルーの腕（と騎手の戦略値を少し）で決まる
-      const work = C.pitWorkBase - constructorOf(this.entry).pitCrew * C.pitCrewPerPoint - this.entry.jockey.strategy * C.pitWorkPerStat;
-      this.pitTimer = work + this.servingPenalty;
+      // 作業時間はコンストラクターのピットクルーの腕と運（と騎手の戦略値を少し）で決まる
+      const w = pitWorkTime(constructorOf(this.entry).pitCrew, this.entry.jockey.strategy, Math.random);
+      this.pitWork = w.time;
+      this.pitWorkResult = w.result;
+      this.pitTimer = w.time + this.servingPenalty;
     }
   }
+}
+
+/** 蹄鉄交換の出来：fast = FAST PIT（約 2 秒）、normal = 約 3 秒、slow = SLOW PIT（4 秒以上のミス） */
+export type PitWorkResult = 'fast' | 'normal' | 'slow';
+
+/**
+ * 4 人のクルーによる蹄鉄交換の作業時間。腕（1〜10）が高いほど成功しやすく、低いほどミスが多い。
+ * ミスの時間は 4 秒から、腕が低いほど大きなミス（最大 10 秒）が出やすい。
+ */
+export function pitWorkTime(crew: number, strategy: number, rand: () => number): { time: number; result: PitWorkResult } {
+  const k = Math.min(1, Math.max(0, (crew - 1) / 9));
+  const lerp = (r: readonly [number, number], t: number) => r[0] + (r[1] - r[0]) * t;
+  const pFast = lerp(C.pitFastChance, k);
+  const pSlow = lerp(C.pitSlowChance, k);
+  const jockey = (5 - strategy) * C.pitWorkPerStat;
+  const u = rand();
+  let result: PitWorkResult;
+  let time: number;
+  if (u < pFast) {
+    result = 'fast';
+    // 腕の良いクルーほど 2 秒を切りやすい
+    time = lerp(C.pitFastTime, rand() * (1.15 - k * 0.5));
+  } else if (u < pFast + pSlow) {
+    result = 'slow';
+    // 腕が低いほど大きなミス（蹄鉄を落とす・釘が曲がる）になりやすい
+    const big = Math.pow(rand(), 1.4 + k * 3);
+    time = C.pitSlowMin + (C.pitSlowMax - C.pitSlowMin) * big;
+  } else {
+    result = 'normal';
+    time = lerp(C.pitNormalTime, rand());
+  }
+  time = result === 'slow' ? time : time + jockey;
+  return { time: Math.round(Math.min(C.pitSlowMax, Math.max(1.7, time)) * 10) / 10, result };
 }
 
 function approach(value: number, target: number, maxStep: number): number {

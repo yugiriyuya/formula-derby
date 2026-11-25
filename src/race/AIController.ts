@@ -67,6 +67,11 @@ export class AIController {
   private sinceWhip = 99;
   /** 逆向きのカーブへの切り返し中（秒）。この間は横移動を速くする */
   private switchTimer = 0;
+  /**
+   * スタミナの読み違い（実際より多く残っていると思い込む量）。戦略値が低く攻め気の強い騎手ほど大きく、
+   * 最後の直線で脚を使い切ってスタミナ切れ（落馬）を起こしやすい
+   */
+  staminaMisread = 0;
   /** 1 周に叩くムチの上限（ふつうは 4 = ペナルティの手前。攻めすぎる騎手は 5〜6） */
   whipLimit = C.whipPenaltyCount - 1;
 
@@ -137,7 +142,8 @@ export class AIController {
       // 1 回ピットの周：レースの中盤。僚馬とは同じ周に入らない（ピットボックスが空くように）
       const teammatePitLap = teammatePitLaps.length ? teammatePitLaps[0] : null;
       const first = Math.max(1, Math.floor(laps * 0.3));
-      const last = Math.max(first, laps - 1);
+      // 最終周の手前（残り 2 周以上ある所）までに入る：ピットで離されても馬群に追いつける距離を残す
+      const last = Math.max(first, laps >= 4 ? laps - 2 : laps - 1);
       let lap = first + Math.floor(rand() * (last - first + 1));
       if (teammatePitLap !== null && lap === teammatePitLap && last > first) lap = lap === last ? lap - 1 : lap + 1;
       this.pitLap = laps >= 2 ? lap : 0;
@@ -158,6 +164,10 @@ export class AIController {
     const railGapM = lane + rand() * 0.6;
     this.preferredLateral = half - railGapM / this.horse.track.def.metersPerBlock;
     this.aggression = rand();
+    // 長丁場（10 周以上）は脚の配分を何度も考え直すので、読み違えは少なめ
+    const misreadK = laps > 6 ? 0.35 : 1;
+    this.staminaMisread =
+      rand() < (C.aiMisreadChance + (10 - strategy) * C.aiMisreadPerStat) * misreadK ? C.aiMisreadMin + rand() * C.aiMisreadRange * (0.5 + this.aggression) : 0;
     // 攻めすぎる騎手（戦略値が低いほど多い）は、最後の直線でムチを 5〜6 回叩いてペナルティを受ける
     const overWhipChance = 0.05 + (10 - strategy) * 0.025;
     this.whipLimit = rand() < overWhipChance ? C.whipPenaltyCount + (rand() < 0.3 ? 1 : 0) : C.whipPenaltyCount - 1;
@@ -246,8 +256,10 @@ export class AIController {
       pace = 'relaxed';
       ratio = 0.35;
     } else if (finalSpurt) {
-      pace = 'high';
-      ratio = h.stamina > 8 ? 1.05 : 0.97;
+      // 最後の追い込み。脚が残っていなければペースを落としてゴールまでもたせる（読み違えた騎手は落とし遅れる）
+      const left = h.stamina + this.staminaMisread;
+      pace = left > 5 ? 'high' : 'relaxed';
+      ratio = left > 10 ? 1.05 : left > 5 ? 0.98 : 0.95;
     } else if (positioning) {
       // 勝負どころ（3〜4 コーナー）：標準より少しだけ速く、位置を上げながら脚をためる
       pace = 'normal';
@@ -256,7 +268,7 @@ export class AIController {
       // 最後の直線のムチ用のスタミナ（aiStaminaReserve＋脚質ごとの上乗せ）は温存し、残りを残り周回に割り振る。
       // 1 周あたりの予算：ハイペースは約 23、標準は約 11 消耗する
       const lapsLeft = remainingM / (track.length * mpb);
-      const reserve = C.aiStaminaReserve + style.aiExtraReserve;
+      const reserve = C.aiStaminaReserve + style.aiExtraReserve - this.staminaMisread * 0.5;
       const budget = Math.max(0, h.stamina - reserve) / Math.max(0.5, lapsLeft);
       const maxPace: PaceLevel = budget > 23 ? 'high' : budget > 11 ? 'normal' : 'relaxed';
       ratio = PACE_LEVELS[maxPace].ratio + (this.aggression - 0.5) * 0.02;
@@ -416,16 +428,18 @@ export class AIController {
     });
 
     let whip = false;
-    if (finalLap && inHomeStretch && h.stamina > 4 && ready) {
+    // ムチは 1 発 whipStaminaCost を使う。0 になると落馬するので、ふつうは余力がある時だけ（読み違えた騎手は叩きすぎる）
+    const feel = h.stamina + this.staminaMisread;
+    if (finalLap && inHomeStretch && feel > C.whipStaminaCost + 2 && ready) {
       // 最後の直線：残りのムチ（この周の上限まで）をゴールまでの時間に割り振って、間隔を空けて叩く。
       // 直線に入った瞬間に全部使い切らず、ゴール前まで伸びを続かせる
       const left = this.whipLimit - h.whipsThisLap;
       const secondsToLine = (toLine * mpb) / Math.max(8, h.speed);
       const gap = Math.max(WHIP_MIN_GAP, secondsToLine / (left + 0.4));
       whip = this.sinceWhip >= gap;
-    } else if (inHomeStretch && rival && h.stamina > 45 && h.whipsThisLap < 2 && ready && this.sinceWhip > 4) {
+    } else if (inHomeStretch && rival && feel > 45 && h.whipsThisLap < 2 && ready && this.sinceWhip > 4) {
       whip = Math.random() < dt * (0.3 + strategy * 0.05);
-    } else if (finalSpurt && !inHomeStretch && h.stamina > 20 && ready && this.sinceWhip > 6) {
+    } else if (finalSpurt && !inHomeStretch && feel > 20 && ready && this.sinceWhip > 6) {
       // 4 コーナー出口の仕掛け：直線の前に 1 発だけ（コーナーの途中では連打しない）
       const toStraightM = (toLine - homeLength) * mpb;
       whip = toStraightM < 40 && h.whipsThisLap === 0 && Math.random() < dt * 1.5;
