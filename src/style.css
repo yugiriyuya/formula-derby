@@ -2527,3 +2527,269 @@ body.touch-ui[data-mode='race'] #sfx-toggle {
     top: 320px;
   }
 }
+
+/* =====================================================================
+   スマホ・タブレット対応（レスポンシブ HUD・画面ボタンの固定・順位表の折りたたみ）
+   ===================================================================== */
+/* アドレスバーの出し入れ・引っぱりスクロールで画面全体が動かないように（ゲーム画面はスクロールしない） */
+html,
+body {
+  height: 100%;
+  height: 100dvh;
+  overscroll-behavior: none;
+}
+body {
+  position: fixed;
+  inset: 0;
+  touch-action: manipulation;
+}
+/* HUD 全体の縮尺（PC は 1。画面が狭い・低いほど小さく） */
+:root {
+  --hud-scale: 1;
+}
+@media (max-width: 1024px), (max-height: 600px) {
+  :root {
+    --hud-scale: 0.78;
+  }
+}
+@media (max-width: 768px), (max-height: 450px) {
+  :root {
+    --hud-scale: 0.6;
+  }
+}
+#left-panel {
+  top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  transform: scale(var(--hud-scale));
+  transform-origin: top left;
+}
+#race-hud {
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  transform: scale(var(--hud-scale));
+  transform-origin: bottom right;
+}
+#hud,
+#spectator-panel {
+  transform: scale(var(--hud-scale));
+  transform-origin: top right;
+}
+#start-lights {
+  transform: translateX(-50%) scale(var(--hud-scale));
+  transform-origin: top center;
+}
+@media (max-width: 1024px), (max-height: 600px) {
+  #commentary {
+    left: 12%;
+    right: 12%;
+    bottom: 40px;
+    font-size: 13px;
+  }
+  #c-big {
+    font-size: 44px;
+  }
+}
+@media (max-width: 768px), (max-height: 450px) {
+  #commentary {
+    left: 6%;
+    right: 6%;
+    font-size: 11px;
+  }
+  #c-big {
+    font-size: 32px;
+  }
+}
+
+/* 順位表の表示切替（全頭 → 上位5頭＋自分の馬 → 閉じる） */
+#left-panel #lp-toggle {
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: #ddd;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#left-panel.st-compact #standings tbody tr:not(.top):not(.focus) {
+  display: none;
+}
+#left-panel.st-closed #standings,
+#left-panel.st-closed #minimap {
+  display: none;
+}
+#left-panel.st-closed .lp-head {
+  padding-bottom: 0;
+}
+
+/* ---------- 画面ボタン：画面の下に固定（押しても位置は動かさない） ---------- */
+body.touch-ui[data-mode='race']:not(.betting):not(.replaying):not(.q-shown) #touch-controls {
+  display: block;
+}
+#touch-controls {
+  position: static;
+  inset: auto;
+}
+#touch-controls .tc-steer,
+#touch-controls .tc-actions {
+  position: fixed;
+  bottom: max(12px, calc(env(safe-area-inset-bottom) + 6px));
+  z-index: 30;
+}
+#touch-controls .tc-steer {
+  left: max(12px, calc(env(safe-area-inset-left) + 6px));
+}
+#touch-controls .tc-actions {
+  right: max(12px, calc(env(safe-area-inset-right) + 6px));
+  grid-template-columns: repeat(3, auto);
+  grid-template-rows: repeat(3, auto);
+  align-items: center;
+  justify-items: center;
+}
+#touch-controls button {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  transform: none;
+  transition: background-color 0.06s, filter 0.06s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 押した時：位置は変えず、色・明るさと、ほんのわずかな縮小だけ */
+#touch-controls button:active {
+  transform: none;
+}
+#touch-controls button.down {
+  transform: scale(0.96);
+  filter: brightness(1.35);
+  background: rgba(255, 210, 58, 0.55);
+  border-color: #ffd23a;
+}
+#touch-controls .tc-whip {
+  grid-column: 3;
+  grid-row: 2 / span 2;
+}
+#touch-controls .tc-pace.up {
+  grid-column: 2;
+  grid-row: 2;
+}
+#touch-controls .tc-pace.down {
+  grid-column: 2;
+  grid-row: 3;
+}
+#touch-controls .tc-pit {
+  grid-column: 1;
+  grid-row: 2;
+}
+#touch-controls .tc-pit.on {
+  background: rgba(255, 210, 58, 0.5);
+  border-color: #ffd23a;
+}
+/* 次の蹄鉄（コンパウンド）：ピットボタンのすぐ下。色で今の選択がわかる */
+#touch-controls .tc-shoe {
+  grid-column: 1;
+  grid-row: 3;
+  border: 3px solid var(--shoe, #f2f2f2);
+}
+#touch-controls .tc-shoe b {
+  font-size: calc(var(--tc) * 0.18);
+  color: var(--shoe, #f2f2f2);
+}
+#touch-controls .tc-actions [data-touch='KeyC'] {
+  grid-column: 3;
+  grid-row: 1;
+  width: calc(var(--tc) * 0.62);
+  height: calc(var(--tc) * 0.62);
+  font-size: calc(var(--tc) * 0.18);
+}
+#touch-controls {
+  --tc: clamp(52px, 12vmin, 88px);
+}
+/* 画面ボタンを出している間のパネル配置（縮尺は上の --hud-scale と合わせる） */
+body.touch-ui[data-mode='race'] #race-hud {
+  bottom: calc(var(--tc, 70px) * 3.3 + 24px);
+  transform: scale(calc(var(--hud-scale) * 0.82));
+}
+body.touch-ui[data-mode='race'] #left-panel {
+  transform: scale(var(--hud-scale));
+}
+body.touch-ui[data-mode='race'] #hud {
+  transform: scale(var(--hud-scale));
+}
+body.touch-ui[data-mode='race'] #commentary {
+  bottom: calc(var(--tc, 70px) * 1.6 + 16px);
+}
+@media (orientation: portrait) {
+  body.touch-ui[data-mode='race'] #left-panel,
+  body.touch-ui[data-mode='race'] #hud {
+    transform: scale(calc(var(--hud-scale) * 0.85));
+  }
+  body.touch-ui[data-mode='race'] #race-hud {
+    transform: scale(calc(var(--hud-scale) * 0.7));
+  }
+}
+/* 画面ボタンを出している間の効果音ボタン：左右ボタンのすぐ上 */
+body.touch-ui[data-mode='race'] #sfx-toggle {
+  top: auto;
+  bottom: calc(var(--tc, 70px) * 1.15 + max(12px, env(safe-area-inset-bottom)) + 12px);
+  left: max(12px, env(safe-area-inset-left));
+}
+@media (orientation: portrait) {
+  body.touch-ui[data-mode='race'] #sfx-toggle {
+    top: auto;
+  }
+}
+/* 狭い・低い画面：実況テロップの文字を小さく */
+@media (max-width: 1024px), (max-height: 600px) {
+  #commentary .text {
+    padding: 6px 12px;
+    font-size: 14px;
+  }
+  #commentary .label {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+}
+@media (max-width: 768px), (max-height: 450px) {
+  #commentary .text {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+}
+/* 低い画面（スマホの横持ちなど）：馬の状態パネルは大事な行だけにして高さを抑える */
+@media (max-height: 600px) {
+  #race-hud .row.team,
+  #race-hud .row.weather,
+  #race-hud .row.laps,
+  #race-hud .row:has(#h-slip) {
+    display: none;
+  }
+}
+/* 低い画面で画面ボタンを出している時：実況は画面上の中央へ（左右のパネルの間） */
+@media (max-height: 450px) {
+  body.touch-ui[data-mode='race'] #commentary {
+    top: 6px;
+    bottom: auto;
+    left: 30%;
+    right: 30%;
+  }
+}
+/* 低い画面で画面ボタンを出している時：馬の状態パネルは右下のボタン群の左隣（右上のパネルと重ならないように） */
+@media (max-height: 450px) {
+  body.touch-ui[data-mode='race'] #race-hud {
+    right: calc(var(--tc, 52px) * 3.6 + 28px);
+    bottom: max(8px, env(safe-area-inset-bottom));
+    transform: scale(calc(var(--hud-scale) * 0.8));
+  }
+}
+/* 低い画面（画面ボタンなし）：実況テロップは右下の馬の状態パネルと重ならない幅に */
+@media (max-height: 450px) {
+  body:not(.touch-ui) #commentary {
+    left: 90px;
+    right: 210px;
+  }
+}

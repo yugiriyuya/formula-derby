@@ -89,6 +89,8 @@ export class StandingsPanel {
       const team = constructorOf(h.entry);
       // 強調するのは自分の馬（観戦モードではカメラが追っている馬）
       r.tr.classList.toggle('focus', h === race.focus);
+      // コンパクト表示（スマホ）では上位 5 頭と自分の馬だけ出す
+      r.tr.classList.toggle('top', i < 5);
       r.tr.classList.toggle('pitting', h.inPit);
       r.tr.classList.toggle('finished', h.finishPosition !== null);
       r.tr.classList.toggle('retired', h.retired);

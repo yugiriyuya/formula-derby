@@ -174,6 +174,24 @@ const pitCrew = new PitCrewView(race.horses, track, world.topAt);
 scene.add(pitCrew.group);
 const hud = new RaceHud();
 const standings = new StandingsPanel(document.querySelector('#standings tbody')!, race.horses.length);
+// 順位表の表示：全頭 → 上位5頭＋自分の馬（コンパクト）→ 閉じる。画面が小さい端末（スマホ・タブレット）はコンパクトから
+type StandingsView = 'full' | 'compact' | 'closed';
+const STANDINGS_LABEL: Record<StandingsView, string> = { full: '全頭', compact: '上位5', closed: '開く' };
+const leftPanel = document.getElementById('left-panel')!;
+const lpToggle = document.getElementById('lp-toggle')!;
+const setStandingsView = (v: StandingsView) => {
+  leftPanel.classList.toggle('st-compact', v === 'compact');
+  leftPanel.classList.toggle('st-closed', v === 'closed');
+  leftPanel.dataset.view = v;
+  lpToggle.textContent = `順位表：${STANDINGS_LABEL[v]}`;
+};
+setStandingsView(window.matchMedia?.('(max-width: 1024px), (max-height: 600px)').matches ? 'compact' : 'full');
+lpToggle.addEventListener('click', () => {
+  const order: StandingsView[] = ['full', 'compact', 'closed'];
+  const cur = (leftPanel.dataset.view as StandingsView) ?? 'full';
+  setStandingsView(order[(order.indexOf(cur) + 1) % order.length]);
+  lpToggle.blur();
+});
 const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, track);
 const input = new KeyboardInput();
 // 画面ボタン（タッチ操作）：設定の「操作方法」（自動ならタッチ端末の時だけ）
@@ -1368,6 +1386,7 @@ renderer.setAnimationLoop((time) => {
   }
   if (racing) {
     hud.update(race);
+    if (appMode === 'race') touchControls.update(race.player);
     standings.update(dt, race);
     minimap.update(race);
     if (appMode === 'spectate') {

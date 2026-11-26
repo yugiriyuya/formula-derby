@@ -2,7 +2,8 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- スマホ・タブレット：ダブルタップやピンチで拡大されて画面ボタンの位置がずれないように。ノッチの内側まで使う -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Formula Derby</title>
     <!--
       読み込み直後（スクリプトが地形を作っている間）に白い画面が出ないよう、最低限の見た目だけ先に書いておく。
@@ -29,6 +30,7 @@
       <div class="lp-head">
         <span>LAP <b id="lp-lap">1/5</b></span>
         <span id="lp-time" class="time">0:00.00</span>
+        <button id="lp-toggle" title="順位表の表示を切り替え（全頭 → 上位5頭＋自馬 → 閉じる）">全頭</button>
       </div>
       <canvas id="minimap"></canvas>
       <table id="standings">
@@ -50,7 +52,8 @@
         <button data-touch="KeyW" class="tc-pace up">▲<small>ペースUP</small></button>
         <button data-touch="KeyS" class="tc-pace down">▼<small>折り合い</small></button>
         <button data-touch="Space" class="tc-whip">ムチ</button>
-        <button data-touch="KeyP" class="tc-small">PIT<small>ピット要求</small></button>
+        <button data-touch="KeyP" class="tc-small tc-pit">PIT<small>ピット要求</small></button>
+        <button data-touch="KeyT" class="tc-small tc-shoe" title="次のピットで履く蹄鉄（押すたびに切替）"><b class="tc-shoe-name">HARD</b><small>次の蹄鉄</small></button>
         <button data-touch="KeyC" class="tc-small">視点</button>
       </div>
     </div>
