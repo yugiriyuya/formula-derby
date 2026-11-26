@@ -734,7 +734,7 @@ export class Race {
     if (cause === 'rail' && by && !by.retired && this.clock - h.lastHitAt < C.crashBlameWindow) {
       const lp = by.lastContactPenalty;
       if (lp && lp.victim === h && this.clock - lp.at < C.crashBlameWindow) {
-        by.penaltySeconds -= C.contactPenaltySeconds;
+        by.addPenalty(-lp.seconds);
         by.lastContactPenalty = null;
       }
       by.giveStopAndGo();
@@ -757,7 +757,10 @@ export class Race {
     this.safety.reset();
   }
 
-  /** 接触：加害側に +10s。相手には「誰にぶつけられたか」を記録（ラチに押し出された時の判定用） */
+  /**
+   * 接触：加害側にタイムペナルティ（その馬の k 回目の接触で +0.1 × k 秒。等差で累積）。
+   * 相手には「誰にぶつけられたか」を記録（ラチに押し出された時の判定用）
+   */
   private contact(aggressor: RaceHorse, victim: RaceHorse) {
     const C = RACE_CONFIG;
     victim.lastHitBy = aggressor;
@@ -766,9 +769,14 @@ export class Race {
     const last = this.contactTimes.get(key) ?? -Infinity;
     if (this.clock - last < C.contactCooldown) return;
     this.contactTimes.set(key, this.clock);
-    aggressor.penaltySeconds += C.contactPenaltySeconds;
-    aggressor.lastContactPenalty = { victim, at: this.clock };
-    this.report(aggressor, `PENALTY +${C.contactPenaltySeconds}s: COLLISION — ${aggressor.postNumber}番 ${aggressor.entry.horse.name}`);
+    aggressor.contactCount++;
+    const seconds = Math.round(C.contactPenaltyStep * aggressor.contactCount * 10) / 10;
+    aggressor.addPenalty(seconds);
+    aggressor.lastContactPenalty = { victim, at: this.clock, seconds };
+    this.report(
+      aggressor,
+      `PENALTY +${seconds.toFixed(1)}s: COLLISION（${aggressor.contactCount}回目）— ${aggressor.postNumber}番 ${aggressor.entry.horse.name}`,
+    );
   }
 
   /** コース上の (s, lateral) 地点の荒れ度 */
@@ -967,7 +975,7 @@ export class Race {
       if (horse.stopGoPending) {
         horse.stopGoPending = false;
         horse.pitRequested = false;
-        horse.penaltySeconds += RACE_CONFIG.unservedStopGoPenalty;
+        horse.addPenalty(RACE_CONFIG.unservedStopGoPenalty);
         this.report(horse, `PENALTY +${RACE_CONFIG.unservedStopGoPenalty}s: STOP & GO NOT SERVED — ${horse.postNumber}番 ${horse.entry.horse.name}`);
       }
       // 着順はペナルティ込みのタイムで決める（後からゴールした馬に抜かれることもある）

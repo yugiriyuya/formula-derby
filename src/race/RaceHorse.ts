@@ -94,7 +94,9 @@ export class RaceHorse {
   lastHitBy: RaceHorse | null = null;
   lastHitAt = -Infinity;
   /** 最後の接触ペナルティ（相手を落馬させた時に STOP & GO へ置き換える） */
-  lastContactPenalty: { victim: RaceHorse; at: number } | null = null;
+  lastContactPenalty: { victim: RaceHorse; at: number; seconds: number } | null = null;
+  /** このレースで接触ペナルティを受けた回数（k 回目は +0.1 × k 秒） */
+  contactCount = 0;
 
   // --- リザルト用の計測（次のフェーズのリザルト画面で使う） ---
   /** 単勝オッズ（倍）と人気順（1 = 1 番人気）。レース前に Race が決める */
@@ -248,6 +250,7 @@ export class RaceHorse {
     this.lastHitBy = null;
     this.lastHitAt = -Infinity;
     this.lastContactPenalty = null;
+    this.contactCount = 0;
     this.overtakes = 0;
     this.distance = 0;
     this.startedBehindLine = this.track.diff(this.s, this.track.def.finishS) < 0;
@@ -334,6 +337,11 @@ export class RaceHorse {
     const toOuter = this.crashLimit + this.lateral;
     const toInner = this.track.innerRailOpenAt(this.s) ? Infinity : this.crashLimit - this.lateral;
     return Math.min(toOuter, toInner) * mpb;
+  }
+
+  /** タイムペナルティを加える（0.1 秒単位にそろえる。0.1 + 0.2 の端数が表示に出ないように） */
+  addPenalty(seconds: number) {
+    this.penaltySeconds = Math.max(0, Math.round((this.penaltySeconds + seconds) * 10) / 10);
   }
 
   /** STOP & GO を科す（次のピットインを強制） */
@@ -434,7 +442,7 @@ export class RaceHorse {
         if (this.servingPenalty > 0) {
           const timePart = this.penaltySeconds;
           this.penaltySeconds = 0;
-          this.penaltyServed += timePart + (this.servingStopGo ? C.stopGoSeconds : 0);
+          this.penaltyServed = Math.round((this.penaltyServed + timePart + (this.servingStopGo ? C.stopGoSeconds : 0)) * 10) / 10;
           this.servingPenalty = 0;
           if (this.servingStopGo) {
             this.servingStopGo = false;
@@ -468,9 +476,9 @@ export class RaceHorse {
       this.whipsThisLap++;
       // 叩いた瞬間にグッと伸びる
       this.speed += C.whipImpulse * this.whipPower * this.style.whipPower * this.windWhipFactor;
-      // 1 周 5 回目以降のムチは 1 回ごとに +5 秒
+      // 1 周 5 回目以降のムチ（上限 4 回の超過）は超過 1 回ごとに +0.5 秒
       if (this.whipsThisLap >= C.whipPenaltyCount) {
-        this.penaltySeconds += C.whipPenaltySeconds;
+        this.addPenalty(C.whipPenaltySeconds);
         this.onPenalty?.(this, C.whipPenaltySeconds, 'EXCESSIVE WHIP');
       }
     }

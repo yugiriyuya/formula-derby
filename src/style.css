@@ -2387,3 +2387,143 @@ body.q-shown #setup-screen {
   line-height: 1.4;
   color: #aaa;
 }
+
+/* =====================================================================
+   画面ボタン（タッチ操作）：シンプルレースで騎乗している間だけ
+   ===================================================================== */
+#touch-controls {
+  display: none;
+}
+body.touch-ui[data-mode='race']:not(.betting):not(.replaying):not(.q-shown) #touch-controls {
+  display: block;
+}
+#touch-controls {
+  --tc: clamp(58px, 13vmin, 92px);
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+#touch-controls button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font: inherit;
+  font-size: calc(var(--tc) * 0.34);
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  background: rgba(16, 20, 28, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+#touch-controls button small {
+  font-size: calc(var(--tc) * 0.14);
+  font-weight: 700;
+  color: #ddd;
+}
+#touch-controls button.down {
+  background: rgba(255, 210, 58, 0.55);
+  border-color: #ffd23a;
+  transform: scale(0.94);
+}
+/* 左下：左右（押している間） */
+#touch-controls .tc-steer {
+  position: absolute;
+  left: calc(14px + env(safe-area-inset-left));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  gap: calc(var(--tc) * 0.25);
+}
+#touch-controls .tc-big {
+  width: calc(var(--tc) * 1.15);
+  height: calc(var(--tc) * 1.15);
+}
+/* 右下：ムチ（大）・ペース・ピット・視点 */
+#touch-controls .tc-actions {
+  position: absolute;
+  right: calc(14px + env(safe-area-inset-right));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  grid-template-rows: auto auto;
+  gap: calc(var(--tc) * 0.16);
+  align-items: end;
+}
+#touch-controls .tc-whip {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  width: calc(var(--tc) * 1.35);
+  height: calc(var(--tc) * 1.35);
+  font-size: calc(var(--tc) * 0.32);
+  background: rgba(225, 6, 0, 0.55);
+  border-color: rgba(255, 140, 130, 0.8);
+}
+#touch-controls .tc-pace {
+  grid-column: 2;
+  width: var(--tc);
+  height: var(--tc);
+}
+#touch-controls .tc-pace.up {
+  grid-row: 1;
+  background: rgba(47, 125, 58, 0.6);
+}
+#touch-controls .tc-pace.down {
+  grid-row: 2;
+  background: rgba(43, 79, 138, 0.6);
+}
+#touch-controls .tc-small {
+  grid-column: 1;
+  width: calc(var(--tc) * 0.78);
+  height: calc(var(--tc) * 0.78);
+  font-size: calc(var(--tc) * 0.22);
+}
+/* 画面ボタンを出している間：右下の馬の状態パネルはボタンの上へ、右上の説明は短く */
+body.touch-ui[data-mode='race'] #race-hud {
+  bottom: calc(var(--tc, 76px) * 2.6 + 24px);
+  transform: scale(0.82);
+  transform-origin: bottom right;
+}
+body.touch-ui[data-mode='race'] #hud .info,
+body.touch-ui[data-mode='race'] #hud .help {
+  display: none;
+}
+body.touch-ui[data-mode='race'] #commentary {
+  bottom: calc(var(--tc, 76px) * 1.5 + 20px);
+}
+/* 縦長の画面（スマホの縦持ち）：パネルを小さくしてボタンの邪魔にならないように */
+@media (orientation: portrait) {
+  body.touch-ui[data-mode='race'] #left-panel {
+    transform: scale(0.62);
+    transform-origin: top left;
+  }
+  body.touch-ui[data-mode='race'] #race-hud {
+    transform: scale(0.62);
+  }
+  body.touch-ui[data-mode='race'] #hud {
+    transform: scale(0.75);
+    transform-origin: top right;
+  }
+}
+/* 画面ボタンを出している間：効果音ボタンは左のパネルの下へ（左右ボタンと重ならないように）・フォーカス枠は出さない */
+body.touch-ui[data-mode='race'] #sfx-toggle {
+  top: 504px;
+  bottom: auto;
+}
+#touch-controls button:focus {
+  outline: none;
+}
+@media (orientation: portrait) {
+  body.touch-ui[data-mode='race'] #sfx-toggle {
+    top: 320px;
+  }
+}

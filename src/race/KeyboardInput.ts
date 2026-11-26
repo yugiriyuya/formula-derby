@@ -25,6 +25,17 @@ export class KeyboardInput {
     target.addEventListener('blur', () => this.held.clear());
   }
 
+  /** 画面ボタン（タッチ操作）：キーを押したのと同じ扱いにする */
+  virtualDown(code: string) {
+    if (!this.held.has(code)) this.pressed.add(code);
+    this.held.add(code);
+  }
+
+  /** 画面ボタンを離した */
+  virtualUp(code: string) {
+    this.held.delete(code);
+  }
+
   isDown(...codes: string[]): boolean {
     return codes.some((c) => this.held.has(c));
   }

@@ -40,6 +40,21 @@
     </div>
 
     <!-- 右上：シンプルレースでは視点（後方⇔騎手）とタイトルへ、コース下見では視点切替・プレビュー走行 -->
+    <!-- 画面ボタン（タッチ操作）：シンプルレースの騎乗中だけ。押したボタンはキーと同じ扱い -->
+    <div id="touch-controls">
+      <div class="tc-steer">
+        <button data-touch="ArrowLeft" class="tc-big">◀<small>左へ</small></button>
+        <button data-touch="ArrowRight" class="tc-big">▶<small>右へ</small></button>
+      </div>
+      <div class="tc-actions">
+        <button data-touch="KeyW" class="tc-pace up">▲<small>ペースUP</small></button>
+        <button data-touch="KeyS" class="tc-pace down">▼<small>折り合い</small></button>
+        <button data-touch="Space" class="tc-whip">ムチ</button>
+        <button data-touch="KeyP" class="tc-small">PIT<small>ピット要求</small></button>
+        <button data-touch="KeyC" class="tc-small">視点</button>
+      </div>
+    </div>
+
     <div id="hud">
       <div class="title"><strong>Formula Derby</strong> — <span id="course-name"></span><span class="preview-only">（コース下見）</span></div>
       <div class="info" id="course-info"></div>

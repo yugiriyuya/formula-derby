@@ -62,8 +62,11 @@ export const RACE_CONFIG = {
   contactSideSpeed: 1.0,
   /** 後ろから追突した時の速度差（m/s）がこれ以上なら追突した側にペナルティ */
   contactRearSpeed: 2.0,
-  /** 通常の接触のペナルティ（秒）。落馬させた時は STOP & GO（stopGoSeconds） */
-  contactPenaltySeconds: 2,
+  /**
+   * 接触のペナルティ（等差で累積）：その馬の k 回目の接触で +contactPenaltyStep × k 秒
+   * （1 回目 +0.1s、2 回目 +0.2s、3 回目 +0.3s …）。落馬させた時は STOP & GO（stopGoSeconds）
+   */
+  contactPenaltyStep: 0.1,
   /** 同じ 2 頭の接触で続けてペナルティを出さない間隔（秒） */
   contactCooldown: 4,
   /** 接触・押し出しの後この秒数以内に相手がラチに衝突したら「落馬させた」と判定 */
@@ -178,9 +181,9 @@ export const RACE_CONFIG = {
   whipAccelMultiplier: 2.5,
   /** スタミナが 0 の時のムチの効き（1 = 満タン時と同じ）。疲れた馬ほど反応が鈍い */
   whipTiredEffect: 0.5,
-  /** 1 周でこの回数目以降のムチは、1 回ごとに whipPenaltySeconds のタイムペナルティ */
+  /** 1 周でこの回数目以降のムチ（上限 4 回の超過）は、超過 1 回ごとに whipPenaltySeconds のタイムペナルティ（0.5s, 1.0s, 1.5s … と積み上がる） */
   whipPenaltyCount: 5,
-  whipPenaltySeconds: 5,
+  whipPenaltySeconds: 0.5,
 
   // --- ピット（m/s, m） ---
   /** ピットレーン速度制限（50km/h） */

@@ -1,6 +1,7 @@
 import { AI_LEVELS, DEFAULT_EDITS, saveEdits, type GameEdits } from '../data/edits';
 import { CONSTRUCTORS, ENTRIES } from '../data/roster';
 import { COURSES } from '../course/courses';
+import { CONTROL_MODES, loadControlMode, saveControlMode, type ControlMode } from '../data/controls';
 import { RUNNING_STYLES, type RunningStyle } from '../data/runningStyles';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -25,6 +26,8 @@ export class EditScreen {
 
   /** 保存・初期化の後に呼ばれる（読み込み直しは main 側で） */
   onApply?: () => void;
+  /** 操作方法を切り替えた時（すぐに保存して反映する。読み込み直しはしない） */
+  onControlMode?: (mode: ControlMode) => void;
   /** コース下見のタブでコースを選んだ時（下見モードへの切り替えは main 側で） */
   onPreview?: (courseId: string) => void;
 
@@ -50,6 +53,13 @@ export class EditScreen {
     this.body.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button[data-preview-course]') as HTMLButtonElement | null;
       if (b) this.onPreview?.(b.dataset.previewCourse!);
+    });
+    this.body.addEventListener('change', (e) => {
+      const r = e.target as HTMLInputElement;
+      if (r.name !== 'control-mode') return;
+      const mode = r.value as ControlMode;
+      saveControlMode(mode);
+      this.onControlMode?.(mode);
     });
   }
 
@@ -78,12 +88,17 @@ export class EditScreen {
       const levels = AI_LEVELS.map(
         (l) => `<label class="opt"><input type="radio" name="ai-level" value="${l.id}" ${this.edits.aiLevel === l.id ? 'checked' : ''}> ${l.label}<small>（能力 ×${l.factor}）</small></label>`,
       ).join('');
+      const current = loadControlMode();
+      const controls = CONTROL_MODES.map(
+        (m) => `<label class="opt"><input type="radio" name="control-mode" value="${m.id}" ${current === m.id ? 'checked' : ''}> ${m.label}<small>（${m.note}）</small></label>`,
+      ).join('');
       this.body.innerHTML = `
+        <div class="edit-row"><span class="k">操作方法</span><div class="opts-inline">${controls}</div></div>
         <div class="edit-row"><span class="k">AI の強さ</span><div class="opts-inline">${levels}</div></div>
         <div class="edit-row"><span class="k">蹄鉄の摩耗</span>
           <input type="range" id="edit-wear" min="0.5" max="2" step="0.1" value="${this.edits.shoeWear}">
           <b id="edit-wear-val">×${this.edits.shoeWear.toFixed(1)}</b><small>（周回数による自動調整にさらに掛ける）</small></div>
-        <p class="edit-note">AI の強さは、自分の馬以外の馬の最高速度に掛かります（観戦モードでは全頭に同じ倍率）。</p>`;
+        <p class="edit-note">操作方法はすぐに切り替わり、ブラウザに保存されます（「保存して反映」は不要）。画面ボタンはシンプルレースで騎乗している間だけ表示され、キーボードもそのまま使えます。<br>AI の強さは、自分の馬以外の馬の最高速度に掛かります（観戦モードでは全頭に同じ倍率）。</p>`;
       const wear = document.getElementById('edit-wear') as HTMLInputElement;
       wear.addEventListener('input', () => (document.getElementById('edit-wear-val')!.textContent = `×${Number(wear.value).toFixed(1)}`));
     } else if (this.tab === 'teams') {

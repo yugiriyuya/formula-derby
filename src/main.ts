@@ -32,6 +32,8 @@ import { TurfWear } from './race/TurfWear';
 import { RACE_CONFIG } from './race/raceConfig';
 import { NO_CONTROLS, type RaceHorse } from './race/RaceHorse';
 import { KeyboardInput } from './race/KeyboardInput';
+import { TouchControls } from './ui/TouchControls';
+import { loadControlMode, touchControlsEnabled } from './data/controls';
 import { playerControls, shiftPace } from './race/pace';
 import { HorseModel, lookOfEntry } from './models/HorseModel';
 import { RaceHud } from './ui/RaceHud';
@@ -174,6 +176,12 @@ const hud = new RaceHud();
 const standings = new StandingsPanel(document.querySelector('#standings tbody')!, race.horses.length);
 const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, track);
 const input = new KeyboardInput();
+// 画面ボタン（タッチ操作）：設定の「操作方法」（自動ならタッチ端末の時だけ）
+const touchControls = new TouchControls(input);
+const applyControlMode = () => touchControls.setEnabled(touchControlsEnabled(loadControlMode()));
+applyControlMode();
+// 自動の時は、端末の入力方法が変わったら（タブレットにキーボードをつないだ等）切り替える
+window.matchMedia?.('(pointer: coarse)').addEventListener?.('change', applyControlMode);
 const commentary = new Commentary();
 const resultScreen = new ResultScreen();
 const qualifyingScreen = new QualifyingScreen();
@@ -995,6 +1003,7 @@ refreshTitleSettings();
 // 設定（エディット）：保存したら読み込み直して出走表に反映
 onClick(document.getElementById('btn-edit')!, () => editScreen.show(edits));
 editScreen.onApply = () => reloadWithCourse(COURSE.id);
+editScreen.onControlMode = applyControlMode;
 // エディットの「コース下見」：今のコースならそのまま、違うコースなら読み込み直してから下見モードへ
 editScreen.onPreview = (courseId) => {
   editScreen.hide();
